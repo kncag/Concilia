@@ -142,6 +142,12 @@ if payouts_metabase is not None:
         df_restantes['Operación - Número'] = df_restantes['Op_Temp_Int'].map(mapa_restantes)
         df_restantes['name'] = '(BBVA) - BBVA Continental'
         
+        # --- NUEVO: Notificación al usuario ---
+        if not df_restantes.empty:
+            ops_ajustadas = df_restantes['Operación - Número'].unique()
+            st.info(f"💡 **Ajuste automático BBVA:** Se encontraron y sumaron {len(df_restantes)} registro(s) restante(s) (+2) para resolver diferencias. Op(s) base afectadas: {', '.join(ops_ajustadas)}")
+        # --------------------------------------
+
         # Unimos operaciones BBVA causantes con sus respectivos restantes encontrados
         df_bbva = pd.concat([df_bbva_causantes, df_restantes], ignore_index=True)
         df_bbva = df_bbva.drop(columns=['Op_Causante_Int'], errors='ignore')
