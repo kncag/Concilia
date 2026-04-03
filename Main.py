@@ -170,13 +170,20 @@ if payouts_metabase is not None:
         }
         bancos_bbva = bancos_bbva.rename(columns=columns_name)
         
-        #filtrar los op del metabase
-        valores_metabase = payouts_metabase_df[payouts_metabase_df['name'] == '(BBVA) - BBVA Continental']['ope_psp'].dropna().astype(str).unique()
+        # Filtrar los op del metabase - asegurar que son strings limpios
+        valores_metabase = (payouts_metabase_df[payouts_metabase_df['name'] == '(BBVA) - BBVA Continental']['ope_psp']
+                            .dropna()
+                            .astype(str)
+                            .str.strip()  # Elimina espacios
+                            .unique())
         
-        #filtramos el metabase con los valores_metabase que son los numeros de op unicos del metabase
+        # Convertir la columna a string también
+        bancos_bbva['Operación - Número'] = bancos_bbva['Operación - Número'].astype(str).str.strip()
+        
+        # Ahora filtra
         df_bbva = bancos_bbva[
-            bancos_bbva['Operación - Número'].astype(str).apply(
-                lambda x: any(valor in x for valor in valores_metabase)
+            bancos_bbva['Operación - Número'].apply(
+                lambda x: any(valor in str(x) for valor in valores_metabase)
             )
         ].copy()
         df_bbva['Operación - Número'] = df_bbva['Operación - Número'].astype(int).astype(str)
