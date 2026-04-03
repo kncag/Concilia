@@ -190,7 +190,9 @@ if payouts_metabase is not None:
             'monto total':'Monto Kashio', 'Monto':'Monto Banco'
         }
         conciliacion_payouts = conciliacion_payouts.rename(columns=columns_diferences)
-        conciliacion_payouts['FechaTexto'] = conciliacion_payouts['FechaTexto'].fillna(method='ffill').fillna(method='bfill')
+        
+        # CORRECCIÓN AQUÍ: Uso de ffill() y bfill() directamente en lugar de fillna(method=...)
+        conciliacion_payouts['FechaTexto'] = conciliacion_payouts['FechaTexto'].ffill().bfill()
 
         st.dataframe(conciliacion_payouts, use_container_width=True)
 
