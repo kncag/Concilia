@@ -18,7 +18,7 @@ payouts_metabase = st.file_uploader('Sube el archivo de payouts del metabase', t
 if payouts_metabase is not None:
     payouts_metabase_df = pd.read_excel(payouts_metabase)
     #el tipo de datos para ope_psp
-        payouts_metabase_df['ope_psp'] = (
+    payouts_metabase_df['ope_psp'] = (
     pd.to_numeric(payouts_metabase_df['ope_psp'], errors='coerce')  # convierte lo numérico, pone NaN al resto
     .astype('Int64')  # conserva los NaN
     .astype(str)  # lo pasas a string si lo necesitas para merge
