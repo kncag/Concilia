@@ -129,7 +129,7 @@ if payouts_metabase is not None:
         ibk_eecc = ibk_eecc.rename(columns=columns_name)
 
         # # #filtramos la columna 'Nombre de la solicitud' por los valores que contienen 
-        ibk_eecc = ibk_eecc[ibk_eecc['Referencia2'].str.contains(r'\b(Y|YOU|YOUT|YO|Payou|Payouts)?\b', case=False, na=False)]
+        ibk_eecc = ibk_eecc[ibk_eecc['Referencia2'].str.contains(r'\bpa(Y|YOU|YOUT|YO|Payou|Payouts)?\b', case=False, na=False)]
 
         #cambiamos el numero de operacion a sin 0 inicial
         ibk_eecc['Operación - Número'] = ibk_eecc['Operación - Número'].astype(int).astype(str)
