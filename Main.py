@@ -105,22 +105,40 @@ if payouts_metabase is not None:
         
         # Comprensión de listas (más rápido que lambda apply)
         mask_bbva = [any(valor in str(x) for valor in valores_metabase) for x in bancos_bbva['Operación - Número']]
-        df_bbva = bancos_bbva[mask_bbva].copy()
+        df_bbva_causantes = bancos_bbva[mask_bbva].copy()
         
-        df_bbva['Operación - Número'] = (
-            pd.to_numeric(df_bbva['Operación - Número'], errors='coerce')
+        df_bbva_causantes['Operación - Número'] = (
+            pd.to_numeric(df_bbva_causantes['Operación - Número'], errors='coerce')
             .astype('Int64').astype(str)
         )
-        df_bbva['name'] = '(BBVA) - BBVA Continental'
+        df_bbva_causantes['name'] = '(BBVA) - BBVA Continental'
 
+        # ======== LÓGICA RESTANTES (+2) EN BBVA ========
+        # 1. Identificamos el número de operación (causante) para encontrar el "restante" sumando 2
+        df_bbva_causantes['Op_Causante_Int'] = pd.to_numeric(df_bbva_causantes['Operación - Número'], errors='coerce')
+        mapa_restantes = df_bbva_causantes.dropna(subset=['Op_Causante_Int']).set_index(df_bbva_causantes['Op_Causante_Int'] + 2)['Operación - Número'].to_dict()
+        
+        # 2. Buscamos en todo el Excel aquellos registros que sean los restantes (+2)
+        bancos_bbva['Op_Temp_Int'] = pd.to_numeric(bancos_bbva['Operación - Número'], errors='coerce')
+        df_restantes = bancos_bbva[bancos_bbva['Op_Temp_Int'].isin(mapa_restantes.keys())].copy()
+        
+        # 3. Asignamos a los restantes el mismo número de operación de su causante para que se agrupen juntos
+        df_restantes['Operación - Número'] = df_restantes['Op_Temp_Int'].map(mapa_restantes)
+        df_restantes['name'] = '(BBVA) - BBVA Continental'
+        
+        # Unimos operaciones BBVA causantes con sus respectivos restantes
+        df_bbva = pd.concat([df_bbva_causantes, df_restantes], ignore_index=True)
+        df_bbva = df_bbva.drop(columns=['Op_Causante_Int'], errors='ignore')
+
+        # ======== SECCIÓN OTROS BANCOS (BXI) ========
         df_otros = bancos_bbva[bancos_bbva['Referencia2'].astype(str).str.contains('BXI', case=False, na=False)].copy()
         
-        # Optimizacion: Vectorización con str.extract (muchísimo más rápido que apply + re.search)
+        # Extraemos el código para cruzar con metabase
         df_otros['Operación - Número'] = df_otros['Referencia2'].str.extract(r'(\d{5,})$')[0]
         df_otros['name'] = 'Otros bancos'
 
         bancos_bbva_filtrado = pd.concat([df_bbva, df_otros], ignore_index=True)
-        return bancos_bbva_filtrado.drop(columns=['F. Valor', 'Código', 'Oficina'], errors='ignore')
+        return bancos_bbva_filtrado.drop(columns=['F. Valor', 'Código', 'Oficina', 'Op_Temp_Int'], errors='ignore')
 
     #=========================================
     # LECTURA DE ESTADOS DE CUENTA
