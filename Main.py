@@ -18,9 +18,7 @@ payouts_metabase = st.file_uploader('Sube el archivo de payouts del metabase', t
 if payouts_metabase is not None:
     payouts_metabase_df = pd.read_excel(payouts_metabase)
     #el tipo de datos para ope_psp
-    #payouts_metabase_df['ope_psp'] = payouts_metabase_df['ope_psp'].astype('Int64').astype(str)
-
-    payouts_metabase_df['ope_psp'] = (
+        payouts_metabase_df['ope_psp'] = (
     pd.to_numeric(payouts_metabase_df['ope_psp'], errors='coerce')  # convierte lo numérico, pone NaN al resto
     .astype('Int64')  # conserva los NaN
     .astype(str)  # lo pasas a string si lo necesitas para merge
@@ -31,11 +29,6 @@ if payouts_metabase is not None:
     #convertimos la columna de fecha_proceso a tipo fecha
     payouts_metabase_df['fecha_proceso'] = pd.to_datetime(payouts_metabase_df['fecha_proceso'])
     
-    # #filtramos por fecha de hoy
-    # hoy = pd.Timestamp.today().normalize()
-    # ayer = pd.Timestamp.today().normalize() - pd.Timedelta(days=1)  # Ayer
-    # payouts_metabase_df = payouts_metabase_df[payouts_metabase_df['fecha_proceso'] == ayer]
-
     #Extraemos la hora de creacion
     payouts_metabase_df['hora'] = payouts_metabase_df['fecha proceso'].dt.hour
 
@@ -130,17 +123,7 @@ if payouts_metabase is not None:
         #cambiamos el numero de operacion a sin 0 inicial
         ibk_eecc['Operación - Número'] = ibk_eecc['Operación - Número'].astype(int).astype(str)
 
-        # #limpiamos la columna 'Monto soles' y lo convertimo a float 
-        # ibk_eecc['Monto'] = (
-        #   ibk_eecc['Monto'].astype(str) #convertimos en string primero
-        #   .str.replace('S/', '', regex=False) #reemplazamos S/ por nada para borrarlo
-        #   .str.replace(',','', regex=False) #tambien la coma 
-        #   .str.strip() #eliminamos espacios que existan
-        #   .astype(float)  #y lo convertimos a decimal para poder sumarlo
-        # )
-        # # #total = ibk_eecc['Monto soles'].sum() #sumamos la columna monto soles
-
-        # #creamos una columna con el nombre del banco
+       # #creamos una columna con el nombre del banco
         ibk_eecc['name'] = '(Interbank) - Banco International del Perú'
         
         # # #eliminaremos columnas innecesarias 
@@ -194,11 +177,6 @@ if payouts_metabase is not None:
         df_otros = bancos_bbva[
             bancos_bbva['Referencia2'].astype(str).str.contains('BXI', case=False, na=False)
         ].copy()
-
-        #extraemos el numero de operacion de la columna Referencia2 y lo reemplazmos en la columna Operación - Número
-        # df_otros['Operación - Número'] = df_otros['Referencia2'].astype(str).apply(
-        #     lambda x: str(int(re.search(r'(\d{5,})$', x).group(1 if re.search(r'(\d{5,})$', x) else None)
-        # )))
 
         df_otros['Operación - Número'] = df_otros['Referencia2'].astype(str).apply(
         lambda x: str(int(re.search(r'(\d{5,})$', x).group(1))) if re.search(r'(\d{5,})$', x) else None
