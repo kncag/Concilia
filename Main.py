@@ -113,20 +113,36 @@ if payouts_metabase is not None:
         )
         df_bbva_causantes['name'] = '(BBVA) - BBVA Continental'
 
-        # ======== LÓGICA RESTANTES (+2) EN BBVA ========
-        # 1. Identificamos el número de operación (causante) para encontrar el "restante" sumando 2
-        df_bbva_causantes['Op_Causante_Int'] = pd.to_numeric(df_bbva_causantes['Operación - Número'], errors='coerce')
-        mapa_restantes = df_bbva_causantes.dropna(subset=['Op_Causante_Int']).set_index(df_bbva_causantes['Op_Causante_Int'] + 2)['Operación - Número'].to_dict()
+        # ======== LÓGICA RESTANTES (+2) EN BBVA SOLO SI HAY DIFERENCIA ========
+        # 1. Calcular montos esperados del metabase para BBVA
+        metabase_bbva = payouts_metabase_df[payouts_metabase_df['name'] == '(BBVA) - BBVA Continental'].copy()
+        metabase_bbva['ope_psp'] = metabase_bbva['ope_psp'].astype(str).str.strip()
+        expected_amounts = metabase_bbva.groupby('ope_psp')['monto total'].sum()
+
+        # 2. Calcular montos encontrados actualmente en el estado de cuenta
+        current_amounts = df_bbva_causantes.groupby('Operación - Número')['Monto'].sum()
+
+        # 3. Detectar ops con diferencias (monto_metabase + monto_banco != 0)
+        ops_con_diferencia = []
+        for op in df_bbva_causantes['Operación - Número'].unique():
+            if op in expected_amounts.index:
+                if round(expected_amounts[op] + current_amounts.get(op, 0), 2) != 0:
+                    ops_con_diferencia.append(op)
+                    
+        # 4. Filtrar causantes que tienen diferencia para buscar su +2
+        df_diferencias = df_bbva_causantes[df_bbva_causantes['Operación - Número'].isin(ops_con_diferencia)].copy()
         
-        # 2. Buscamos en todo el Excel aquellos registros que sean los restantes (+2)
+        df_diferencias['Op_Causante_Int'] = pd.to_numeric(df_diferencias['Operación - Número'], errors='coerce')
+        mapa_restantes = df_diferencias.dropna(subset=['Op_Causante_Int']).set_index(df_diferencias['Op_Causante_Int'] + 2)['Operación - Número'].to_dict()
+        
         bancos_bbva['Op_Temp_Int'] = pd.to_numeric(bancos_bbva['Operación - Número'], errors='coerce')
         df_restantes = bancos_bbva[bancos_bbva['Op_Temp_Int'].isin(mapa_restantes.keys())].copy()
         
-        # 3. Asignamos a los restantes el mismo número de operación de su causante para que se agrupen juntos
+        # 5. Asignamos a los restantes el mismo número de operación de su causante para que se agrupen juntos
         df_restantes['Operación - Número'] = df_restantes['Op_Temp_Int'].map(mapa_restantes)
         df_restantes['name'] = '(BBVA) - BBVA Continental'
         
-        # Unimos operaciones BBVA causantes con sus respectivos restantes
+        # Unimos operaciones BBVA causantes con sus respectivos restantes encontrados
         df_bbva = pd.concat([df_bbva_causantes, df_restantes], ignore_index=True)
         df_bbva = df_bbva.drop(columns=['Op_Causante_Int'], errors='ignore')
 
