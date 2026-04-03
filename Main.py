@@ -1,377 +1,234 @@
 import pandas as pd
 import streamlit as st
 from datetime import datetime
-import re
 import io
 
 #=========================================
 # Primera parte. Subida archivo METABASE
 #=========================================
 
-st.title('Conciliacion PAYOUTS dia anterior')
-st.write('Herramienta para la conciliacion de los pagos del dia anterior')
-
-#primero cargamos el archivo de los payouts del metabase 
+st.title('Conciliación PAYOUTS día anterior')
+st.write('Herramienta para la conciliación de los pagos del día anterior')
 
 payouts_metabase = st.file_uploader('Sube el archivo de payouts del metabase', type=['xlsx'])
 
 if payouts_metabase is not None:
+    # 1. Carga y conversiones base
     payouts_metabase_df = pd.read_excel(payouts_metabase)
-    #el tipo de datos para ope_psp
+    
     payouts_metabase_df['ope_psp'] = (
-    pd.to_numeric(payouts_metabase_df['ope_psp'], errors='coerce')  # convierte lo numérico, pone NaN al resto
-    .astype('Int64')  # conserva los NaN
-    .astype(str)  # lo pasas a string si lo necesitas para merge
-)
+        pd.to_numeric(payouts_metabase_df['ope_psp'], errors='coerce')
+        .astype('Int64')
+        .astype(str)
+    )
 
-    #creamos una columna con la fehca de proceso con solo la fecha
-    payouts_metabase_df['fecha_proceso'] = pd.to_datetime(payouts_metabase_df['fecha pagado / rechazado']).dt.date
-    #convertimos la columna de fecha_proceso a tipo fecha
-    payouts_metabase_df['fecha_proceso'] = pd.to_datetime(payouts_metabase_df['fecha_proceso'])
-    
-    #Extraemos la hora de creacion
-    payouts_metabase_df['hora'] = payouts_metabase_df['fecha proceso'].dt.hour
+    # Convertimos fecha y normalizamos (pone la hora en 00:00:00 sin cambiar el tipo de dato)
+    payouts_metabase_df['fecha_proceso'] = pd.to_datetime(payouts_metabase_df['fecha pagado / rechazado']).dt.normalize()
+    payouts_metabase_df['hora'] = pd.to_datetime(payouts_metabase_df['fecha proceso']).dt.hour
+    payouts_metabase_df['date'] = pd.to_datetime(payouts_metabase_df['fecha proceso']).dt.date
 
-    #Extraemos la fecha de proceso
-    payouts_metabase_df['date'] = payouts_metabase_df['fecha proceso'].dt.date
+    fecha = payouts_metabase_df['fecha_proceso'].dropna().unique()[0].strftime("%Y%m%d")
 
+    # 2. Filtros combinados (Mejora de rendimiento)
+    mask = (
+        (payouts_metabase_df['estado'] == 'Pagado') & 
+        (payouts_metabase_df['moneda'] == 'PEN') & 
+        (payouts_metabase_df['name'] != '(Scotiabank)- Scotiabank')
+    )
+    payouts_metabase_df = payouts_metabase_df[mask].copy()
 
-    #para uso de nombres de archivos
-    fecha = pd.to_datetime(payouts_metabase_df['fecha_proceso'].unique()[0]).strftime("%Y%m%d")
-
-    #filtramos el estado de la operacion a pagado
-    payouts_metabase_df = payouts_metabase_df[payouts_metabase_df['estado'] == 'Pagado']
-
-    #filtramos por el tipo de moneda
-    payouts_metabase_df = payouts_metabase_df[payouts_metabase_df['moneda'] == 'PEN']
-
-    #filtramos todos los BANCOs menos scotiabank 
-    payouts_metabase_df = payouts_metabase_df[payouts_metabase_df['name'] != '(Scotiabank)- Scotiabank']    
-
-    #creamos una tabla pivot con los montos de cada banco
+    # Tablas Pivot
     pivot_payouts = payouts_metabase_df.groupby(['fecha_proceso','name'])['monto total'].sum().reset_index()
-    group_hour = payouts_metabase_df.groupby(['name', 'ope_psp']).agg({'monto total':'sum'}).reset_index()
-    #group_hour['ope_psp'] = group_hour['ope_psp'].astype(str)
-    columns_name = {
-        'ope_psp':'Operación - Número'
-    }
     
-    group_hour = group_hour.rename(columns=columns_name)
+    group_hour = payouts_metabase_df.groupby(['name', 'ope_psp']).agg({'monto total':'sum'}).reset_index()
+    group_hour = group_hour.rename(columns={'ope_psp':'Operación - Número'})
 
-    #st.dataframe(payouts_metabase_df, use_container_width=True)
     st.dataframe(pivot_payouts, use_container_width=True)
 
     #=========================================
-    # BCP
+    # FUNCIONES DE BANCOS
     #=========================================  
-    #definimos funciones para cada banco
+    
     def procesar_bcp(archivo):
         bcp_eecc = pd.read_excel(archivo, skiprows=4)
-        #cambiamos el tipo de dato del numero de operacion 
         bcp_eecc['Operación - Número'] = bcp_eecc['Operación - Número'].astype(str)
-        #filtramos la columna Referencia 2 por los que contienen PAYOUT
-        bcp_eecc = bcp_eecc[bcp_eecc['Referencia2'].str.contains('PAYOUT', case=False, na=False)]
+        bcp_eecc = bcp_eecc[bcp_eecc['Referencia2'].str.contains('PAYOUT', case=False, na=False)].copy()
 
-        bcp_eecc['Hora'] = pd.to_datetime(bcp_eecc['Operación - Hora'], format = '%H:%M:%S', errors='coerce').dt.hour
+        bcp_eecc['Hora'] = pd.to_datetime(bcp_eecc['Operación - Hora'], format='%H:%M:%S', errors='coerce').dt.hour
 
-        #eliminaremos columnas innecesarias 
-
-        suma_monto_por_hora = bcp_eecc.groupby('Hora')['Monto'].sum().reset_index()
+        # Optimizacion: Usamos map en lugar de merge para cruzar la suma
+        suma_monto_por_hora = bcp_eecc.groupby('Hora')['Monto'].sum()
         
-         #2. Obtenemos una fila representativa por hora, solo de pagos (montos negativos)
-        pagos_negativos = bcp_eecc[bcp_eecc['Monto'] < 0]
+        bcp_consolidado = bcp_eecc[bcp_eecc['Monto'] < 0].drop_duplicates(subset=['Hora']).copy()
+        bcp_consolidado['Monto'] = bcp_consolidado['Hora'].map(suma_monto_por_hora)
 
-        fila_negativa_por_hora  = pagos_negativos.sort_values('Hora').groupby('Hora').first().reset_index()
-
-        bcp_consolidado = pd.merge(fila_negativa_por_hora, suma_monto_por_hora, on='Hora')
-
-        bcp_consolidado = bcp_consolidado.drop(columns=['Fecha valuta','Descripción operación' ,'Saldo', 'Sucursal - agencia'
-                                                        , 'Usuario', 'UTC', 'Hora', 'Operación - Hora'
-                                                        , 'Monto_x'
-                                                    ])
-        bcp_consolidado = bcp_consolidado.rename(columns={'Monto_y':'Monto'})
-        #creamos una columna con el nombre del banco
+        columnas_mantener = ['Operación - Número', 'Referencia2', 'Monto']
+        bcp_consolidado = bcp_consolidado[[col for col in columnas_mantener if col in bcp_consolidado.columns]]
+        
         bcp_consolidado['name'] = '(BCP) - Banco de Crédito del Perú'
-        #total = bcp_eecc['Monto'].sum() * -1
         return bcp_consolidado
     
-    
-    #=========================================
-    # INTERBANK
-    #=========================================  
-    
     def procesar_interbank(archivo):
-        ibk_eecc = pd.read_excel(archivo, skiprows=13) #leemos el excel 
-        # #eliminamos la primera columna
-        ibk_eecc = ibk_eecc.drop(columns=['Unnamed: 0'])
-        # # #eliminamos la fila sin valores
-        # ibk_eecc = ibk_eecc.dropna(how='all')
-
-        # # #cambiamos el nombre de las columnas
+        ibk_eecc = pd.read_excel(archivo, skiprows=13).drop(columns=['Unnamed: 0'], errors='ignore')
+        
         columns_name = {
-            'Fecha de Proc.': 'Fecha',
-            'Cargos':'Monto',
-            'Detalle': 'Referencia2',
-            'Cod. de Operación': 'Operación - Número'
+            'Fecha de Proc.': 'Fecha', 'Cargos':'Monto', 
+            'Detalle': 'Referencia2', 'Cod. de Operación': 'Operación - Número'
         }
-
         ibk_eecc = ibk_eecc.rename(columns=columns_name)
 
-        # # #filtramos la columna 'Nombre de la solicitud' por los valores que contienen 
-        ibk_eecc = ibk_eecc[ibk_eecc['Referencia2'].str.contains(r'\b(?:PA(?:Y(?:OU(?:T)?)?|YO|YOU)?|PAYOUTS?(?:\s+VARI)?|VARI)\b', case=False, na=False)]
+        ibk_eecc = ibk_eecc[ibk_eecc['Referencia2'].str.contains(r'\b(?:PA(?:Y(?:OU(?:T)?)?|YO|YOU)?|PAYOUTS?(?:\s+VARI)?|VARI)\b', case=False, na=False)].copy()
 
-        #cambiamos el numero de operacion a sin 0 inicial
-        ibk_eecc['Operación - Número'] = ibk_eecc['Operación - Número'].astype(int).astype(str)
-
-       # #creamos una columna con el nombre del banco
+        # Evita errores si hay valores nulos antes de pasar a string
+        ibk_eecc['Operación - Número'] = pd.to_numeric(ibk_eecc['Operación - Número'], errors='coerce').astype('Int64').astype(str)
         ibk_eecc['name'] = '(Interbank) - Banco International del Perú'
         
-        # # #eliminaremos columnas innecesarias 
-        ibk_eecc = ibk_eecc.drop(columns=['Fecha de Op.', 'Movimiento'
-                                           ,'Canal', 'Cod. de Ubicación', 'Abonos', 'Saldo contable'
-                                           ])
-        
-        return ibk_eecc
-    
-    #=========================================
-    # BBVA - OTROS BANCOS Y MANUALES
-    #=========================================  
+        cols_drop = ['Fecha de Op.', 'Movimiento', 'Canal', 'Cod. de Ubicación', 'Abonos', 'Saldo contable']
+        return ibk_eecc.drop(columns=[c for c in cols_drop if c in ibk_eecc.columns])
 
     def procesar_bbva_otros(archivo):
         bancos_bbva = pd.read_excel(archivo, skiprows=10)
         
-        # Renombrar columnas
         columns_name = {
-            'F. Operación': 'Fecha',
-            'Concepto': 'Referencia2',
-            'Importe': 'Monto',
-            'Nº. Doc.':'Operación - Número'
+            'F. Operación': 'Fecha', 'Concepto': 'Referencia2', 
+            'Importe': 'Monto', 'Nº. Doc.':'Operación - Número'
         }
         bancos_bbva = bancos_bbva.rename(columns=columns_name)
         
-        # Filtrar los op del metabase - asegurar que son strings limpios
-        valores_metabase = (payouts_metabase_df[payouts_metabase_df['name'] == '(BBVA) - BBVA Continental']['ope_psp']
-                            .dropna()
-                            .astype(str)
-                            .str.strip()  # Elimina espacios
-                            .unique())
+        # Usamos set para búsquedas más rápidas
+        valores_metabase = set(
+            payouts_metabase_df[payouts_metabase_df['name'] == '(BBVA) - BBVA Continental']['ope_psp']
+            .dropna().astype(str).str.strip()
+        )
         
-        # Convertir la columna a string también
         bancos_bbva['Operación - Número'] = bancos_bbva['Operación - Número'].astype(str).str.strip()
         
-        # Ahora filtra
-        df_bbva = bancos_bbva[
-            bancos_bbva['Operación - Número'].apply(
-                lambda x: any(valor in str(x) for valor in valores_metabase)
-            )
-        ].copy()
+        # Comprensión de listas (más rápido que lambda apply)
+        mask_bbva = [any(valor in str(x) for valor in valores_metabase) for x in bancos_bbva['Operación - Número']]
+        df_bbva = bancos_bbva[mask_bbva].copy()
+        
         df_bbva['Operación - Número'] = (
             pd.to_numeric(df_bbva['Operación - Número'], errors='coerce')
-            .astype('Int64')
-            .astype(str)
+            .astype('Int64').astype(str)
         )
         df_bbva['name'] = '(BBVA) - BBVA Continental'
+
+        df_otros = bancos_bbva[bancos_bbva['Referencia2'].astype(str).str.contains('BXI', case=False, na=False)].copy()
         
-
-        # DataFrame con filas que contienen "BXI"
-        df_otros = bancos_bbva[
-            bancos_bbva['Referencia2'].astype(str).str.contains('BXI', case=False, na=False)
-        ].copy()
-
-        df_otros['Operación - Número'] = df_otros['Referencia2'].astype(str).apply(
-        lambda x: str(int(re.search(r'(\d{5,})$', x).group(1))) if re.search(r'(\d{5,})$', x) else None
-        )
-
-        #df_otros = df_otros[df_otros['Operación - Número'].notna()]
-        
+        # Optimizacion: Vectorización con str.extract (muchísimo más rápido que apply + re.search)
+        df_otros['Operación - Número'] = df_otros['Referencia2'].str.extract(r'(\d{5,})$')[0]
         df_otros['name'] = 'Otros bancos'
 
-        # ==========
-        # manuales
-        # # ==========
-
-        # df_manuales = bancos_bbva[bancos_bbva['Referencia2'].astype(str).str.contains('BXI CT', case=False, na=False)].copy()
-
-        # df_manuales['name'] = 'Manuales'
-        # df_manuales['Operación - Número'] = None
-
         bancos_bbva_filtrado = pd.concat([df_bbva, df_otros], ignore_index=True)
-
-        #eliminamos columnas innecesaarias
-        bancos_bbva_filtrado = bancos_bbva_filtrado.drop(
-            columns=['F. Valor', 'Código', 'Oficina']
-        )
-
-        return bancos_bbva_filtrado
+        return bancos_bbva_filtrado.drop(columns=['F. Valor', 'Código', 'Oficina'], errors='ignore')
 
     #=========================================
-    # DICCIONAARIO DE FUNCIONES POR BANCO
+    # LECTURA DE ESTADOS DE CUENTA
     #=========================================  
 
-    #creamos el diccionario de funciones de cada banco
     procesadores_banck = {
         'bcp': procesar_bcp,
         'ibk': procesar_interbank,
-        'bbva':procesar_bbva_otros
+        'bbva': procesar_bbva_otros
     }
 
-    #=========================================
-    # Lectura de los estados de cuenta de los bancos
-    #=========================================  
-
-    #creamos la seccion para subir el estado de cuenta del banco seleccionado
-    estado_cuenta = st.file_uploader(f'Subir estados de cuenta', type=['xlsx', 'xls'], accept_multiple_files=True
-                                     )
+    estado_cuenta = st.file_uploader('Subir estados de cuenta', type=['xlsx', 'xls'], accept_multiple_files=True)
     
     df_consolidados = []
 
     if estado_cuenta:
         for archivo in estado_cuenta:
             nombre_archivo = archivo.name.lower()
-            procesador = None
-            #buscar funcion adecuada segun nombre de archivo
-            for clave, funcion in procesadores_banck.items():
-                if clave in nombre_archivo:
-                    procesador = funcion
-                    break
+            procesador = next((funcion for clave, funcion in procesadores_banck.items() if clave in nombre_archivo), None)
 
             if procesador:
                 try:
                     df = procesador(archivo)
-                    #st.dataframe(df)
                     df_consolidados.append(df)
                     st.success(f'Archivo procesado: {archivo.name}')
                 except Exception as e:
                     st.error(f'Error al procesar {archivo.name}: {e}')
             else:
-                st.warning(f'No se encontro una funcion para procesar: {archivo.name}')
+                st.warning(f'No se encontró una función para procesar: {archivo.name}')
 
     if df_consolidados:
         df_final = pd.concat(df_consolidados, ignore_index=True)
         st.subheader("📊 Datos consolidados de todos los bancos")
-        df_final_group = df_final.groupby(['name', 'Operación - Número']).agg({'Monto':'sum'}).reset_index() #informaciones de los bancos
-        group_hour = payouts_metabase_df.groupby(['name', 'ope_psp']).agg({'monto total':'sum', 'hora':lambda x: x.unique()[0]}).reset_index() #informacion del metabase
+        
+        df_final_group = df_final.groupby(['name', 'Operación - Número']).agg({'Monto':'sum'}).reset_index()
+        
+        # Corrección: Extraer la hora de forma segura
+        group_hour = payouts_metabase_df.groupby(['name', 'ope_psp']).agg({
+            'monto total':'sum', 
+            'hora': 'first' # 'first' es más seguro y rápido que lambda x: x.unique()[0]
+        }).reset_index() 
         group_hour = group_hour.rename(columns={'ope_psp':'Operación - Número'})
         
         st.dataframe(df_final)
 
-  
-        merge_op = pd.merge(df_final_group, group_hour, on = 'Operación - Número', how='outer')
+        merge_op = pd.merge(df_final_group, group_hour, on='Operación - Número', how='outer')
         merge_op['Diferencias'] = round((merge_op['monto total'] + merge_op['Monto']), 2)
         merge_op = merge_op[merge_op['Diferencias'] != 0]
-        #st.dataframe(merge_op)
 
-        #mostramos un pivot con los montos de los bancos 
-        bancos_montos = df_final.groupby('name')['Monto'].sum().reset_index() #pivot de los datos consolidados de los bancos 
+        bancos_montos = df_final.groupby('name')['Monto'].sum().reset_index() 
         bancos_montos['Monto'] = bancos_montos['Monto'].abs()
-        #st.dataframe(bancos_montos, use_container_width=True)
 
+        #=========================================
+        # CONCILIACIÓN FINAL
+        #========================================= 
 
-   #=========================================
-    # Registro de diferencias entre los bancos metabase y estados de cuenta
-    #========================================= 
-
-
-        st.subheader('Conciliacion de los montos de todos los bancos')
-        st.write(''' En esta seccion podremos encontrar si hay diferencias
-                  entre los montos de los bancos de los estados de cuenta y el metabase del core
-                  de Kashio, para poder analizar los cortes de payouts regulares.''')
-        #uniremos los df con los resultados finales
+        st.subheader('Conciliación de los montos de todos los bancos')
+        st.write('''En esta sección podremos encontrar si hay diferencias entre los montos de los 
+                    bancos de los estados de cuenta y el metabase del core de Kashio...''')
+        
         conciliacion_payouts = pd.merge(pivot_payouts, bancos_montos, on='name', how='outer')
-        #mostramos las diferencias
         conciliacion_payouts['Diferencia'] = round(conciliacion_payouts['monto total'] - conciliacion_payouts['Monto'], 2)
-
-        #creamos una columna que nos arroja que banco tienen diferencias para pasar a analizaarlo
         conciliacion_payouts['Estado'] = conciliacion_payouts['Diferencia'].apply(lambda x: 'Conciliado' if x == 0 else 'Diferencias')
         
-    
         columns_diferences = {
-            'fecha_proceso': 'FechaTexto',
-            'name':'BANCO',
-            'monto total':'Monto Kashio',
-            'Monto':'Monto Banco',
-            'Diferencia':'Diferencia',
-            'Estado':'Estado'
+            'fecha_proceso': 'FechaTexto', 'name':'BANCO', 
+            'monto total':'Monto Kashio', 'Monto':'Monto Banco'
         }
-
-        #sales
-
         conciliacion_payouts = conciliacion_payouts.rename(columns=columns_diferences)
-
-        conciliacion_payouts['FechaTexto'] = conciliacion_payouts['FechaTexto'].fillna(conciliacion_payouts['FechaTexto'].values[0])
+        conciliacion_payouts['FechaTexto'] = conciliacion_payouts['FechaTexto'].fillna(method='ffill').fillna(method='bfill')
 
         st.dataframe(conciliacion_payouts, use_container_width=True)
 
-        #hoy_str = hoy.strftime('%d/%m/%Y')
-        #creamos una columna esstado por defecto a todo el df
-        #payouts_metabase_df['Estado'] = f'Conci. {hoy_str}'
-        payouts_metabase_df['Estado'] = f'Conciliacion_{fecha}' #en caso no funcione borrar
+        payouts_metabase_df['Estado'] = f'Conciliacion_{fecha}' 
 
-    #=========================================
-    # Vista de diferencias encontradas
-    #========================================= 
-
-        # Inicializa el estado de guardado si no existe
-        if 'guardado_metabase' not in st.session_state:
-            st.session_state.guardado_metabase = False
-
-        if 'guardar_record_dif' not in st.session_state:
-            st.session_state.guardar_record_dif = False
-
-        #mostramos un aviso si hay diferencias
         if 'Diferencias' in conciliacion_payouts['Estado'].values:
             st.warning('Se detectaron diferencias en la conciliación')
-         
-            if 'Banco metabes' not in merge_op.columns:
-                columns_name = {
-                    'name_x': 'Banco estados de cuenta',
-                    'Operación - Número': 'Numero operacion banco',
-                    'Monto': 'Monto bancos',
-                    'name_y': 'Banco metabase',
-                    'monto total': 'Monto metabase',
-
-                }
-                merge_op = merge_op.rename(columns=columns_name)
+            
+            if 'Banco metabase' not in merge_op.columns:
+                merge_op = merge_op.rename(columns={
+                    'name_x': 'Banco estados de cuenta', 'Operación - Número': 'Numero operacion banco',
+                    'Monto': 'Monto bancos', 'name_y': 'Banco metabase', 'monto total': 'Monto metabase'
+                })
                 
-                #Mostrar solo detalle de diferencias para los bancos que tienen diferencias
-                #creamos una columna con el banco final
                 merge_op['Banco final'] = merge_op['Banco metabase'].combine_first(merge_op['Banco estados de cuenta'])
-                # 1. Filtrar los bancos con diferencia mayor a 0
-                bancos_con_diferencias = conciliacion_payouts[ (conciliacion_payouts['Diferencia'] > 0) | (conciliacion_payouts['Diferencia'] < 0) ]['BANCO'].unique()
-
-                # 2. Filtrar merge_op solo para esos bancos
+                bancos_con_diferencias = conciliacion_payouts[conciliacion_payouts['Diferencia'] != 0]['BANCO'].unique()
                 merge_op_filtrado = merge_op[merge_op['Banco final'].isin(bancos_con_diferencias)]
 
                 with st.expander('Detalle de diferencias'):
                     st.dataframe(merge_op_filtrado.iloc[:, :7], use_container_width=True)
 
                 diferencias_ = payouts_metabase_df['ope_psp'].isin(merge_op['Numero operacion banco'])
-                #payouts_metabase_df.loc[diferencias_, 'Estado'] = f'Conci. {hoy_str} - Diferencias' 
-                payouts_metabase_df.loc[diferencias_, 'Estado'] = f'Conciliacion_{fecha} - Diferencias' #in case doesn't work, delete this
-                metabase_filter_dife = payouts_metabase_df[diferencias_].copy()
+                payouts_metabase_df.loc[diferencias_, 'Estado'] = f'Conciliacion_{fecha} - Diferencias' 
 
         else:
             st.success('No se encontraron diferencias en la conciliación')
 
-            with st.container():
+        with st.container():
+            archivo_nombre = f'Conciliacion_{fecha}.xlsx'
+            excel_buffer = io.BytesIO()
+            with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
+                payouts_metabase_df.to_excel(writer, sheet_name='Payouts_Metabase', index=False)
+                df_final.to_excel(writer, sheet_name='Operaciones Bancos', index=False)
 
-                if not st.session_state.guardado_metabase:
-                    archivo_nombre = f'Conciliacion_{fecha}.xlsx'
-
-                    #agregamos la columna de estado antes de exportar
-                    payouts_metabase_df['Estado'] = f'Conciliacion_{fecha}' #en caso no funcione borrar
-
-                    excel_buffer = io.BytesIO()
-                    with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
-                        payouts_metabase_df.to_excel(writer, sheet_name='Payouts_Metabase', index=False)
-                        df_final.to_excel(writer, sheet_name='Operaciones Bancos', index=False)
-
-                    excel_data = excel_buffer.getvalue()
-
-                    st.download_button(
-                        label='DESCARGAR CONCILIACIÓN',
-                        data=excel_data,
-                        file_name=archivo_nombre,
-                        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                        use_container_width=True
-                    )
+            st.download_button(
+                label='DESCARGAR CONCILIACIÓN',
+                data=excel_buffer.getvalue(),
+                file_name=archivo_nombre,
+                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                use_container_width=True
+            )
