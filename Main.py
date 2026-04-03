@@ -2,11 +2,7 @@ import pandas as pd
 import streamlit as st
 from datetime import datetime
 import re
-from office365.sharepoint.client_context import ClientContext
-from office365.runtime.auth.user_credential import UserCredential
-from office365.sharepoint.files.file import File
 import io
-from notion_client import Client
 
 #=========================================
 # Primera parte. Subida archivo METABASE
