@@ -129,7 +129,7 @@ if payouts_metabase is not None:
         ibk_eecc = ibk_eecc.rename(columns=columns_name)
 
         # # #filtramos la columna 'Nombre de la solicitud' por los valores que contienen 
-        ibk_eecc = ibk_eecc[ibk_eecc['Referencia2'].str.contains(r'\bPA(Y|YOU|YOUT|YO)?\b', case=False, na=False)]
+        ibk_eecc = ibk_eecc[ibk_eecc['Referencia2'].str.contains(r'\bPA(Y|YOU|YOUT|YO|Payou|Payouts|VARI)?\b', case=False, na=False)]
 
         #cambiamos el numero de operacion a sin 0 inicial
         ibk_eecc['Operación - Número'] = ibk_eecc['Operación - Número'].astype(int).astype(str)
@@ -186,7 +186,11 @@ if payouts_metabase is not None:
                 lambda x: any(valor in str(x) for valor in valores_metabase)
             )
         ].copy()
-        df_bbva['Operación - Número'] = df_bbva['Operación - Número'].astype(int).astype(str)
+        df_bbva['Operación - Número'] = (
+            pd.to_numeric(df_bbva['Operación - Número'], errors='coerce')
+            .astype('Int64')
+            .astype(str)
+        )
         df_bbva['name'] = '(BBVA) - BBVA Continental'
         
 
