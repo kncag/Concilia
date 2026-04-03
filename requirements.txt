@@ -1,7 +1,5 @@
 streamlit
 pandas>=2.1
-notion-client
-office365-rest-python-client>=2.5.17
 openpyxl
 xlsxwriter
 pillow
