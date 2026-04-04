@@ -189,8 +189,8 @@ def generar_excel_descarga(df_metabase: pd.DataFrame, df_bancos: pd.DataFrame, f
 # =========================================
 # INTERFAZ PRINCIPAL STREAMLIT
 # =========================================
-st.set_page_config(page_title="Conciliación Payouts", layout="wide")
-st.title('📊 Conciliación PAYOUTS día anterior')
+st.set_page_config(page_title="Conciliación Payouts")
+st.title('Conciliación PAYOUTS día anterior')
 st.write('Herramienta para la conciliación de los pagos del día anterior')
 
 archivo_metabase = st.file_uploader('Sube el archivo de payouts del metabase', type=['xlsx'])
@@ -288,7 +288,7 @@ if archivo_metabase:
                 mask_diferencias = df_metabase['ope_psp'].isin(operaciones_con_dif)
                 df_metabase.loc[mask_diferencias, 'Estado_Detalle'] = 'Diferencia Detectada'
             else:
-                st.success('🎉 ¡Todos los montos han sido conciliados correctamente!')
+                st.success('Conciliado correctamente')
 
             # --- DESCARGA ---
             st.markdown("---")
