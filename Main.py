@@ -171,7 +171,7 @@ def ajustar_diferencias_bbva(df_causantes: pd.DataFrame, df_original: pd.DataFra
     
     if restantes:
         df_restantes = pd.concat(restantes, ignore_index=True)
-        st.info(f"💡 **Ajuste automático BBVA:** Se unieron {len(df_restantes)} registro(s) restante(s) (+2) exactos. Ops: {', '.join(ops_ajustadas)}")
+        st.info(f"**Ajuste automático BBVA:** Se unieron {len(df_restantes)} registro(s) restante(s) (+2) exactos. Ops: {', '.join(ops_ajustadas)}")
         return pd.concat([df_causantes, df_restantes], ignore_index=True)
     
     return df_causantes.copy()
@@ -228,20 +228,20 @@ if archivo_metabase:
                     try:
                         df_procesado = procesador(archivo)
                         df_bancos_list.append(df_procesado)
-                        st.toast(f'✅ {archivo.name} procesado correctamente')
+                        st.toast(f'{archivo.name} procesado correctamente')
                     except Exception as e:
                         st.error(f'Error al procesar {archivo.name}: {str(e)}')
                 else:
-                    st.warning(f'⚠️ No se encontró un procesador para: {archivo.name}')
+                    st.warning(f'No se encontró un procesador para: {archivo.name}')
 
         if df_bancos_list:
             df_bancos_final = pd.concat(df_bancos_list, ignore_index=True)
             
-            st.subheader("📊 Datos consolidados de los Bancos")
+            st.subheader("Datos consolidados de los Bancos")
             st.dataframe(df_bancos_final, width='stretch')
 
             # --- LÓGICA DE CONCILIACIÓN ---
-            st.subheader('⚖️ Conciliación Final')
+            st.subheader('Conciliación Final')
             st.write('Comparación entre los montos de los bancos y el metabase del core de Kashio.')
 
             # Agrupaciones
@@ -267,7 +267,7 @@ if archivo_metabase:
 
             # --- ANÁLISIS DE DIFERENCIAS ---
             if 'Diferencias' in df_conciliacion['Estado'].values:
-                st.warning('⚠️ Se detectaron diferencias en la conciliación. Revisa el detalle a continuación.')
+                st.warning('Se detectaron diferencias en la conciliación. Revisa el detalle a continuación.')
                 
                 # Agrupación a nivel de Operación para encontrar a los culpables
                 ops_banco = df_bancos_final.groupby(['name', 'Operación - Número'])['Monto'].sum().reset_index()
@@ -280,7 +280,7 @@ if archivo_metabase:
                 # Filtrar solo las que no cuadran
                 df_diferencias_detalle = df_diferencias_detalle[df_diferencias_detalle['Diferencia'] != 0]
                 
-                with st.expander('🔍 Detalle de operaciones con diferencias'):
+                with st.expander('Detalle de operaciones con diferencias'):
                     st.dataframe(df_diferencias_detalle, width='stretch')
 
                 # Marcamos el DF del metabase original con el estado de las diferencias
@@ -295,7 +295,7 @@ if archivo_metabase:
             excel_data = generar_excel_descarga(df_metabase, df_bancos_final, fecha_reporte)
             
             st.download_button(
-                label='⬇️ DESCARGAR CONCILIACIÓN',
+                label='DESCARGAR CONCILIACIÓN',
                 data=excel_data,
                 file_name=f'Conciliacion_{fecha_reporte}.xlsx',
                 mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
