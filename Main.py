@@ -67,7 +67,7 @@ if payouts_metabase is not None:
     group_hour = payouts_metabase_df.groupby(['name', 'ope_psp']).agg({'monto total':'sum'}).reset_index()
     group_hour = group_hour.rename(columns={'ope_psp':'Operación - Número'})
 
-    st.dataframe(pivot_payouts, use_container_width=True)
+    st.dataframe(pivot_payouts, width='stretch')
 
     #=========================================
     # FUNCIONES DE BANCOS
@@ -271,7 +271,7 @@ if payouts_metabase is not None:
         # CORRECCIÓN AQUÍ: Uso de ffill() y bfill() directamente en lugar de fillna(method=...)
         conciliacion_payouts['FechaTexto'] = conciliacion_payouts['FechaTexto'].ffill().bfill()
 
-        st.dataframe(conciliacion_payouts, use_container_width=True)
+        st.dataframe(conciliacion_payouts, width='stretch')
 
         payouts_metabase_df['Estado'] = f'Conciliacion_{fecha}' 
 
@@ -289,7 +289,7 @@ if payouts_metabase is not None:
                 merge_op_filtrado = merge_op[merge_op['Banco final'].isin(bancos_con_diferencias)]
 
                 with st.expander('Detalle de diferencias'):
-                    st.dataframe(merge_op_filtrado.iloc[:, :7], use_container_width=True)
+                    st.dataframe(merge_op_filtrado.iloc[:, :7], width='stretch')
 
                 diferencias_ = payouts_metabase_df['ope_psp'].isin(merge_op['Numero operacion banco'])
                 payouts_metabase_df.loc[diferencias_, 'Estado'] = f'Conciliacion_{fecha} - Diferencias' 
@@ -309,5 +309,5 @@ if payouts_metabase is not None:
                 data=excel_buffer.getvalue(),
                 file_name=archivo_nombre,
                 mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                use_container_width=True
+                width='stretch'
             )
