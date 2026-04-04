@@ -270,12 +270,21 @@ if archivo_metabase:
                 
                 # 1. Agrupación matemática TOTAL a nivel de Operación para calcular el descuadre real
                 ops_banco_total = df_bancos_final.groupby(['name', 'Operación - Número'])['Monto'].sum().reset_index()
+                # Duplicamos las columnas para poder mostrarlas tras el merge outer
+                ops_banco_total['Banco estados de cuenta'] = ops_banco_total['name']
+                ops_banco_total['Numero operacion banco'] = ops_banco_total['Operación - Número']
+
                 ops_metabase_total = df_metabase.groupby(['name', 'ope_psp'])['monto total'].sum().reset_index()
                 ops_metabase_total = ops_metabase_total.rename(columns={'ope_psp': 'Operación - Número'})
+                # Duplicamos las columnas para poder mostrarlas tras el merge outer
+                ops_metabase_total['Banco metabase'] = ops_metabase_total['name']
+                ops_metabase_total['Numero operacion metabase'] = ops_metabase_total['Operación - Número']
                 
                 # Merge matemático para encontrar los descuadres netos
                 df_dif_totales = pd.merge(ops_banco_total, ops_metabase_total, on=['name', 'Operación - Número'], how='outer')
-                df_dif_totales['Diferencia_Total'] = round(df_dif_totales['monto total'] + df_dif_totales['Monto'], 2)
+                
+                # Usamos fillna(0) en el cálculo para evitar que los NaN anulen las diferencias de ops que solo existen en un lado
+                df_dif_totales['Diferencia_Total'] = round(df_dif_totales['monto total'].fillna(0) + df_dif_totales['Monto'].fillna(0), 2)
                 
                 # Nos quedamos solo con las operaciones que NO cuadran
                 df_dif_totales = df_dif_totales[df_dif_totales['Diferencia_Total'] != 0]
@@ -297,8 +306,6 @@ if archivo_metabase:
 
                 # --- RENOMBRAMIENTO Y LIMPIEZA VISUAL PARA LA VISTA DESGLOSADA ---
                 columnas_vista = {
-                    'name': 'Banco',
-                    'Operación - Número': 'Numero operacion banco',
                     'Monto': 'Monto bancos (Total)',
                     'monto total': 'Monto metabase (Total)',
                     'Diferencia_Total': 'Diferencias',
@@ -308,19 +315,20 @@ if archivo_metabase:
                 
                 # Filtrar solo los bancos que tienen problemas a nivel general
                 bancos_con_problemas = df_conciliacion[df_conciliacion['Diferencia'] != 0]['name'].unique()
-                df_diferencias_detalle = df_diferencias_detalle[df_diferencias_detalle['Banco'].isin(bancos_con_problemas)]
+                df_diferencias_detalle = df_diferencias_detalle[df_diferencias_detalle['name'].isin(bancos_con_problemas)]
                 
-                # Ordenar las columnas para mejor legibilidad
+                # Ordenar las columnas para mejor legibilidad, incluyendo explícitamente ambas fuentes
                 columnas_a_mostrar = [
-                    'Banco', 'Numero operacion banco', 'Monto bancos (Total)', 
-                    'Monto metabase (Total)', 'Diferencias', 'Hora metabase', 'Monto metabase (Parcial por Hora)'
+                    'Banco estados de cuenta', 'Numero operacion banco', 'Monto bancos (Total)', 
+                    'Banco metabase', 'Numero operacion metabase', 'Monto metabase (Total)', 
+                    'Diferencias', 'Hora metabase', 'Monto metabase (Parcial por Hora)'
                 ]
                 
                 with st.expander('Detalle de operaciones con diferencias (Desglose por hora)'):
                     st.dataframe(df_diferencias_detalle[columnas_a_mostrar], width='stretch')
 
                 # Marcamos el DF del metabase original con el estado de las diferencias
-                operaciones_con_dif = df_diferencias_detalle['Numero operacion banco'].dropna().unique()
+                operaciones_con_dif = df_diferencias_detalle['Operación - Número'].dropna().unique()
                 mask_diferencias = df_metabase['ope_psp'].isin(operaciones_con_dif)
                 df_metabase.loc[mask_diferencias, 'Estado'] = f'Conciliacion_{fecha_reporte} - Diferencias'
             else:
