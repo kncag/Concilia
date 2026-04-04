@@ -171,7 +171,7 @@ def ajustar_diferencias_bbva(df_causantes: pd.DataFrame, df_original: pd.DataFra
     
     if restantes:
         df_restantes = pd.concat(restantes, ignore_index=True)
-        st.info(f"**Ajuste automático BBVA:** Se unieron {len(df_restantes)} registro(s) restante(s) (+2) exactos. Ops: {', '.join(ops_ajustadas)}")
+        st.info(f"💡 **Ajuste automático BBVA:** Se unieron {len(df_restantes)} registro(s) restante(s) (+2) exactos. Ops: {', '.join(ops_ajustadas)}")
         return pd.concat([df_causantes, df_restantes], ignore_index=True)
     
     return df_causantes.copy()
@@ -189,8 +189,8 @@ def generar_excel_descarga(df_metabase: pd.DataFrame, df_bancos: pd.DataFrame, f
 # =========================================
 # INTERFAZ PRINCIPAL STREAMLIT
 # =========================================
-st.set_page_config(page_title="Conciliación Payouts")
-st.title('Conciliación PAYOUTS día anterior')
+st.set_page_config(page_title="Conciliación Payouts", layout="centered")
+st.title('📊 Conciliación PAYOUTS día anterior')
 st.write('Herramienta para la conciliación de los pagos del día anterior')
 
 archivo_metabase = st.file_uploader('Sube el archivo de payouts del metabase', type=['xlsx'])
@@ -228,20 +228,20 @@ if archivo_metabase:
                     try:
                         df_procesado = procesador(archivo)
                         df_bancos_list.append(df_procesado)
-                        st.toast(f'{archivo.name} procesado correctamente')
+                        st.toast(f'✅ {archivo.name} procesado correctamente')
                     except Exception as e:
                         st.error(f'Error al procesar {archivo.name}: {str(e)}')
                 else:
-                    st.warning(f'No se encontró un procesador para: {archivo.name}')
+                    st.warning(f'⚠️ No se encontró un procesador para: {archivo.name}')
 
         if df_bancos_list:
             df_bancos_final = pd.concat(df_bancos_list, ignore_index=True)
             
-            st.subheader("Datos consolidados de los Bancos")
+            st.subheader("📊 Datos consolidados de los Bancos")
             st.dataframe(df_bancos_final, width='stretch')
 
             # --- LÓGICA DE CONCILIACIÓN ---
-            st.subheader('Conciliación Final')
+            st.subheader('⚖️ Conciliación Final')
             st.write('Comparación entre los montos de los bancos y el metabase del core de Kashio.')
 
             # Agrupaciones
@@ -267,35 +267,66 @@ if archivo_metabase:
 
             # --- ANÁLISIS DE DIFERENCIAS ---
             if 'Diferencias' in df_conciliacion['Estado'].values:
-                st.warning('Se detectaron diferencias en la conciliación. Revisa el detalle a continuación.')
+                st.warning('⚠️ Se detectaron diferencias en la conciliación. Revisa el detalle a continuación.')
                 
                 # Agrupación a nivel de Operación para encontrar a los culpables
                 ops_banco = df_bancos_final.groupby(['name', 'Operación - Número'])['Monto'].sum().reset_index()
-                ops_metabase = df_metabase.groupby(['name', 'ope_psp'])['monto total'].sum().reset_index()
+                
+                # Para la vista detallada agregamos la hora del Metabase
+                ops_metabase = df_metabase.groupby(['name', 'ope_psp']).agg({
+                    'monto total': 'sum',
+                    'hora': 'first'
+                }).reset_index()
                 ops_metabase = ops_metabase.rename(columns={'ope_psp': 'Operación - Número'})
                 
-                df_diferencias_detalle = pd.merge(ops_banco, ops_metabase, on=['name', 'Operación - Número'], how='outer')
-                df_diferencias_detalle['Diferencia'] = round(df_diferencias_detalle['monto total'] + df_diferencias_detalle['Monto'], 2)
+                # Merge detallado
+                df_diferencias_detalle = pd.merge(ops_banco, ops_metabase, on='Operación - Número', how='outer')
+                
+                # Cálculo de diferencia
+                df_diferencias_detalle['Diferencias'] = round(df_diferencias_detalle['monto total'] + df_diferencias_detalle['Monto'], 2)
                 
                 # Filtrar solo las que no cuadran
-                df_diferencias_detalle = df_diferencias_detalle[df_diferencias_detalle['Diferencia'] != 0]
+                df_diferencias_detalle = df_diferencias_detalle[df_diferencias_detalle['Diferencias'] != 0]
+
+                # --- RENOMBRAMIENTO Y LIMPIEZA VISUAL (Restaurado) ---
+                columnas_vista = {
+                    'name_x': 'Banco estados de cuenta',
+                    'Operación - Número': 'Numero operacion banco',
+                    'Monto': 'Monto bancos',
+                    'name_y': 'Banco metabase',
+                    'monto total': 'Monto metabase'
+                }
+                df_diferencias_detalle = df_diferencias_detalle.rename(columns=columnas_vista)
                 
-                with st.expander('Detalle de operaciones con diferencias'):
-                    st.dataframe(df_diferencias_detalle, width='stretch')
+                # Consolidar nombre final del banco
+                df_diferencias_detalle['Banco final'] = df_diferencias_detalle['Banco metabase'].combine_first(df_diferencias_detalle['Banco estados de cuenta'])
+                
+                # Filtrar solo los bancos que tienen problemas a nivel general
+                bancos_con_problemas = df_conciliacion[df_conciliacion['Diferencia'] != 0]['BANCO'].unique()
+                df_diferencias_detalle = df_diferencias_detalle[df_diferencias_detalle['Banco final'].isin(bancos_con_problemas)]
+                
+                # Mostrar solo las columnas relevantes
+                columnas_a_mostrar = [
+                    'Banco estados de cuenta', 'Numero operacion banco', 'Monto bancos',
+                    'Banco metabase', 'Monto metabase', 'hora', 'Diferencias'
+                ]
+                
+                with st.expander('🔍 Detalle de operaciones con diferencias'):
+                    st.dataframe(df_diferencias_detalle[columnas_a_mostrar], width='stretch')
 
                 # Marcamos el DF del metabase original con el estado de las diferencias
-                operaciones_con_dif = df_diferencias_detalle['Operación - Número'].unique()
+                operaciones_con_dif = df_diferencias_detalle['Numero operacion banco'].unique()
                 mask_diferencias = df_metabase['ope_psp'].isin(operaciones_con_dif)
-                df_metabase.loc[mask_diferencias, 'Estado_Detalle'] = 'Diferencia Detectada'
+                df_metabase.loc[mask_diferencias, 'Estado'] = f'Conciliacion_{fecha_reporte} - Diferencias'
             else:
-                st.success('Conciliado correctamente')
+                st.success('🎉 ¡Todos los montos han sido conciliados correctamente!')
 
             # --- DESCARGA ---
             st.markdown("---")
             excel_data = generar_excel_descarga(df_metabase, df_bancos_final, fecha_reporte)
             
             st.download_button(
-                label='DESCARGAR CONCILIACIÓN',
+                label='⬇️ DESCARGAR CONCILIACIÓN',
                 data=excel_data,
                 file_name=f'Conciliacion_{fecha_reporte}.xlsx',
                 mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
