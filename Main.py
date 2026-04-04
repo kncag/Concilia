@@ -3,6 +3,16 @@ import streamlit as st
 from datetime import datetime
 import io
 
+def limpiar_numero_operacion(series):
+    """
+    Limpia la columna de números de operación evitando errores de casting estricto (Int64).
+    Convierte a numérico, redondea para evitar decimales residuales de Excel, 
+    convierte a entero (quitando ceros a la izquierda) y finalmente a texto.
+    """
+    return pd.to_numeric(series, errors='coerce').apply(
+        lambda x: str(int(round(x))) if pd.notna(x) else None
+    )
+
 #=========================================
 # Primera parte. Subida archivo METABASE
 #=========================================
@@ -16,11 +26,8 @@ if payouts_metabase is not None:
     # 1. Carga y conversiones base
     payouts_metabase_df = pd.read_excel(payouts_metabase)
     
-    payouts_metabase_df['ope_psp'] = (
-        pd.to_numeric(payouts_metabase_df['ope_psp'], errors='coerce')
-        .astype('Int64')
-        .astype(str)
-    )
+    # --- SOLUCIÓN APLICADA: Limpieza segura de OP_PSP ---
+    payouts_metabase_df['ope_psp'] = limpiar_numero_operacion(payouts_metabase_df['ope_psp'])
 
     # Convertimos fecha y normalizamos (pone la hora en 00:00:00 sin cambiar el tipo de dato)
     payouts_metabase_df['fecha_proceso'] = pd.to_datetime(payouts_metabase_df['fecha pagado / rechazado']).dt.normalize()
@@ -96,8 +103,8 @@ if payouts_metabase is not None:
 
         ibk_eecc = ibk_eecc[ibk_eecc['Referencia2'].str.contains(r'\b(?:PA(?:Y(?:OU(?:T)?)?|YO|YOU)?|PAYOUTS?(?:\s+VARI)?|VARI)\b', case=False, na=False)].copy()
 
-        # Evita errores si hay valores nulos antes de pasar a string
-        ibk_eecc['Operación - Número'] = pd.to_numeric(ibk_eecc['Operación - Número'], errors='coerce').astype('Int64').astype(str)
+        # Usamos la función limpiadora
+        ibk_eecc['Operación - Número'] = limpiar_numero_operacion(ibk_eecc['Operación - Número'])
         ibk_eecc['name'] = '(Interbank) - Banco International del Perú'
         
         cols_drop = ['Fecha de Op.', 'Movimiento', 'Canal', 'Cod. de Ubicación', 'Abonos', 'Saldo contable']
@@ -124,10 +131,8 @@ if payouts_metabase is not None:
         mask_bbva = [any(valor in str(x) for valor in valores_metabase) for x in bancos_bbva['Operación - Número']]
         df_bbva_causantes = bancos_bbva[mask_bbva].copy()
         
-        df_bbva_causantes['Operación - Número'] = (
-            pd.to_numeric(df_bbva_causantes['Operación - Número'], errors='coerce')
-            .astype('Int64').astype(str)
-        )
+        # Usamos la función limpiadora
+        df_bbva_causantes['Operación - Número'] = limpiar_numero_operacion(df_bbva_causantes['Operación - Número'])
         df_bbva_causantes['name'] = '(BBVA) - BBVA Continental'
 
         # ======== LÓGICA RESTANTES (+2) EN BBVA ESTRICTA ========
@@ -143,7 +148,7 @@ if payouts_metabase is not None:
         ops_ajustadas = []
 
         # 3. Detectar ops con diferencias e intentar cuadrar de forma precisa
-        for op in df_bbva_causantes['Operación - Número'].unique():
+        for op in df_bbva_causantes['Operación - Número'].dropna().unique():
             if op in expected_amounts.index:
                 diferencia = round(expected_amounts[op] + current_amounts.get(op, 0), 2)
                 
@@ -186,12 +191,8 @@ if payouts_metabase is not None:
         # Extraemos el código para cruzar con metabase
         df_otros['Operación - Número'] = df_otros['Referencia2'].str.extract(r'(\d{5,})$')[0]
         
-        # --- SOLUCIÓN APLICADA: Quitar ceros a la izquierda ---
-        df_otros['Operación - Número'] = (
-            pd.to_numeric(df_otros['Operación - Número'], errors='coerce')
-            .astype('Int64').astype(str)
-        )
-        # -------------------------------------------------------
+        # Usamos la función limpiadora
+        df_otros['Operación - Número'] = limpiar_numero_operacion(df_otros['Operación - Número'])
 
         df_otros['name'] = 'Otros bancos'
 
