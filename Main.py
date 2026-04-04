@@ -128,20 +128,16 @@ if payouts_metabase is not None:
         # 3. Detectar ops con diferencias e intentar cuadrar de forma precisa
         for op in df_bbva_causantes['Operación - Número'].unique():
             if op in expected_amounts.index:
-                # Calcula la diferencia actual (Monto Kashio + Monto Banco)
                 diferencia = round(expected_amounts[op] + current_amounts.get(op, 0), 2)
                 
                 if diferencia != 0:
-                    # El monto requerido del banco para equilibrar a cero es la diferencia invertida
                     monto_buscado = round(-diferencia, 2)
                     
-                    # REGLA: Solo buscamos si el monto requerido es un valor POSITIVO
                     if monto_buscado > 0:
                         try:
                             op_int = int(op)
                             op_target_int = op_int + 2
                             
-                            # Filtro muy estricto: Coincidencia numérica de Op + 2 Y coincidencia exacta de Monto
                             mask_exacta = (
                                 (pd.to_numeric(bancos_bbva['Operación - Número'], errors='coerce') == op_target_int) &
                                 (bancos_bbva['Monto'].round(2) == monto_buscado)
@@ -149,21 +145,19 @@ if payouts_metabase is not None:
                             
                             match_df = bancos_bbva[mask_exacta].copy()
                             
-                            # Si encuentra algo, lo acepta como restante válido
                             if not match_df.empty:
-                                match_df['Operación - Número'] = str(op_int)  # Se unifica el ID
+                                match_df['Operación - Número'] = str(op_int)  
                                 match_df['name'] = '(BBVA) - BBVA Continental'
                                 restantes_encontrados.append(match_df)
                                 ops_ajustadas.append(str(op_int))
                         except ValueError:
-                            pass # Manejo por si el número de op tiene letras
+                            pass 
         
         # 4. Integrar los registros válidos o dejar las cosas como están
         if restantes_encontrados:
             df_restantes_validos = pd.concat(restantes_encontrados, ignore_index=True)
             df_bbva = pd.concat([df_bbva_causantes, df_restantes_validos], ignore_index=True)
             
-            # --- Notificación al usuario con validación estricta ---
             st.info(f"💡 **Ajuste automático BBVA:** Se detectaron {len(df_restantes_validos)} registro(s) restante(s) (+2) con montos positivos que cuadran **exactamente** la diferencia. Operación(es) consolidada(s): {', '.join(set(ops_ajustadas))}")
         else:
             df_bbva = df_bbva_causantes.copy()
@@ -174,6 +168,14 @@ if payouts_metabase is not None:
         
         # Extraemos el código para cruzar con metabase
         df_otros['Operación - Número'] = df_otros['Referencia2'].str.extract(r'(\d{5,})$')[0]
+        
+        # --- SOLUCIÓN APLICADA: Quitar ceros a la izquierda ---
+        df_otros['Operación - Número'] = (
+            pd.to_numeric(df_otros['Operación - Número'], errors='coerce')
+            .astype('Int64').astype(str)
+        )
+        # -------------------------------------------------------
+
         df_otros['name'] = 'Otros bancos'
 
         bancos_bbva_filtrado = pd.concat([df_bbva, df_otros], ignore_index=True)
