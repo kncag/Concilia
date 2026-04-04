@@ -37,6 +37,23 @@ if payouts_metabase is not None:
     )
     payouts_metabase_df = payouts_metabase_df[mask].copy()
 
+    # --- NUEVA LÓGICA: Limpieza de nombres de bancos en Metabase ---
+    
+    # 2.1 Filtrar operaciones de Yape para no considerarlas en el análisis
+    payouts_metabase_df = payouts_metabase_df[~payouts_metabase_df['name'].astype(str).str.contains('Yape', case=False, na=False)]
+    
+    # 2.2 Renombrar bancos menores (Cmac Huancayo, Financiera Oh, etc.) a "Otros bancos"
+    bancos_principales = [
+        '(BCP) - Banco de Crédito del Perú',
+        '(Interbank) - Banco International del Perú',
+        '(BBVA) - BBVA Continental'
+    ]
+    payouts_metabase_df['name'] = payouts_metabase_df['name'].apply(
+        lambda x: x if x in bancos_principales else 'Otros bancos'
+    )
+    
+    # --------------------------------------------------------------
+
     # Tablas Pivot
     pivot_payouts = payouts_metabase_df.groupby(['fecha_proceso','name'])['monto total'].sum().reset_index()
     
