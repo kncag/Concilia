@@ -268,57 +268,63 @@ if archivo_metabase:
             if 'Diferencias' in df_conciliacion['Estado'].values:
                 st.warning('Se detectaron diferencias en la conciliación. Revisa el detalle a continuación.')
                 
-                # Agrupación a nivel de Operación para encontrar a los culpables
-                ops_banco = df_bancos_final.groupby(['name', 'Operación - Número'])['Monto'].sum().reset_index()
+                # 1. Agrupación matemática TOTAL a nivel de Operación para calcular el descuadre real
+                ops_banco_total = df_bancos_final.groupby(['name', 'Operación - Número'])['Monto'].sum().reset_index()
+                ops_metabase_total = df_metabase.groupby(['name', 'ope_psp'])['monto total'].sum().reset_index()
+                ops_metabase_total = ops_metabase_total.rename(columns={'ope_psp': 'Operación - Número'})
                 
-                # Para la vista detallada agregamos la hora del Metabase
-                ops_metabase = df_metabase.groupby(['name', 'ope_psp']).agg({
-                    'monto total': 'sum',
-                    'hora': 'first'
-                }).reset_index()
-                ops_metabase = ops_metabase.rename(columns={'ope_psp': 'Operación - Número'})
+                # Merge matemático para encontrar los descuadres netos
+                df_dif_totales = pd.merge(ops_banco_total, ops_metabase_total, on=['name', 'Operación - Número'], how='outer')
+                df_dif_totales['Diferencia_Total'] = round(df_dif_totales['monto total'] + df_dif_totales['Monto'], 2)
                 
-                # Merge detallado
-                df_diferencias_detalle = pd.merge(ops_banco, ops_metabase, on='Operación - Número', how='outer')
-                
-                # Cálculo de diferencia
-                df_diferencias_detalle['Diferencias'] = round(df_diferencias_detalle['monto total'] + df_diferencias_detalle['Monto'], 2)
-                
-                # Filtrar solo las que no cuadran
-                df_diferencias_detalle = df_diferencias_detalle[df_diferencias_detalle['Diferencias'] != 0]
+                # Nos quedamos solo con las operaciones que NO cuadran
+                df_dif_totales = df_dif_totales[df_dif_totales['Diferencia_Total'] != 0]
 
-                # --- RENOMBRAMIENTO Y LIMPIEZA VISUAL (Restaurado) ---
+                # 2. Extraer desglose por HORA desde el Metabase
+                ops_metabase_hora = df_metabase.groupby(['name', 'ope_psp', 'hora'])['monto total'].sum().reset_index()
+                ops_metabase_hora = ops_metabase_hora.rename(columns={
+                    'ope_psp': 'Operación - Número',
+                    'monto total': 'Monto metabase (Parcial por Hora)'
+                })
+
+                # 3. Cruzar el resumen matemático con el desglose por hora
+                df_diferencias_detalle = pd.merge(
+                    df_dif_totales, 
+                    ops_metabase_hora, 
+                    on=['name', 'Operación - Número'], 
+                    how='left'
+                )
+
+                # --- RENOMBRAMIENTO Y LIMPIEZA VISUAL PARA LA VISTA DESGLOSADA ---
                 columnas_vista = {
-                    'name_x': 'Banco estados de cuenta',
+                    'name': 'Banco',
                     'Operación - Número': 'Numero operacion banco',
-                    'Monto': 'Monto bancos',
-                    'name_y': 'Banco metabase',
-                    'monto total': 'Monto metabase'
+                    'Monto': 'Monto bancos (Total)',
+                    'monto total': 'Monto metabase (Total)',
+                    'Diferencia_Total': 'Diferencias',
+                    'hora': 'Hora metabase'
                 }
                 df_diferencias_detalle = df_diferencias_detalle.rename(columns=columnas_vista)
                 
-                # Consolidar nombre final del banco
-                df_diferencias_detalle['Banco final'] = df_diferencias_detalle['Banco metabase'].combine_first(df_diferencias_detalle['Banco estados de cuenta'])
-                
                 # Filtrar solo los bancos que tienen problemas a nivel general
                 bancos_con_problemas = df_conciliacion[df_conciliacion['Diferencia'] != 0]['name'].unique()
-                df_diferencias_detalle = df_diferencias_detalle[df_diferencias_detalle['Banco final'].isin(bancos_con_problemas)]
+                df_diferencias_detalle = df_diferencias_detalle[df_diferencias_detalle['Banco'].isin(bancos_con_problemas)]
                 
-                # Mostrar solo las columnas relevantes
+                # Ordenar las columnas para mejor legibilidad
                 columnas_a_mostrar = [
-                    'Banco estados de cuenta', 'Numero operacion banco', 'Monto bancos',
-                    'Banco metabase', 'Monto metabase', 'hora', 'Diferencias'
+                    'Banco', 'Numero operacion banco', 'Monto bancos (Total)', 
+                    'Monto metabase (Total)', 'Diferencias', 'Hora metabase', 'Monto metabase (Parcial por Hora)'
                 ]
                 
-                with st.expander('Detalle de operaciones con diferencias'):
+                with st.expander('Detalle de operaciones con diferencias (Desglose por hora)'):
                     st.dataframe(df_diferencias_detalle[columnas_a_mostrar], width='stretch')
 
                 # Marcamos el DF del metabase original con el estado de las diferencias
-                operaciones_con_dif = df_diferencias_detalle['Numero operacion banco'].unique()
+                operaciones_con_dif = df_diferencias_detalle['Numero operacion banco'].dropna().unique()
                 mask_diferencias = df_metabase['ope_psp'].isin(operaciones_con_dif)
                 df_metabase.loc[mask_diferencias, 'Estado'] = f'Conciliacion_{fecha_reporte} - Diferencias'
             else:
-                st.success('¡Todos los montos han sido conciliados correctamente!')
+                st.success('Todos los montos han sido conciliados correctamente.')
 
             # --- DESCARGA ---
             excel_data = generar_excel_descarga(df_metabase, df_bancos_final, fecha_reporte)
