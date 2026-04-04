@@ -196,11 +196,18 @@ st.write('Herramienta para la conciliación de los pagos del día anterior')
 archivo_metabase = st.file_uploader('Sube el archivo de payouts del metabase', type=['xlsx'])
 
 if archivo_metabase:
-    with st.spinner("Procesando archivo Metabase..."):
-        df_metabase_raw = pd.read_excel(archivo_metabase)
-        df_metabase = procesar_metabase(df_metabase_raw)
+    # --- IMPLEMENTACIÓN DE SESSION STATE ---
+    # Esto asegura que al modificar Metabase en la UI, no se vuelva a cargar el original
+    if 'uploaded_file_name' not in st.session_state or st.session_state.uploaded_file_name != archivo_metabase.name:
+        with st.spinner("Procesando archivo Metabase..."):
+            df_metabase_raw = pd.read_excel(archivo_metabase)
+            st.session_state.df_metabase = procesar_metabase(df_metabase_raw)
+            st.session_state.uploaded_file_name = archivo_metabase.name
+
+    # Trabajamos con el dataframe almacenado en memoria (que puede tener correcciones)
+    df_metabase = st.session_state.df_metabase.copy()
         
-        fecha_reporte = df_metabase['fecha_proceso'].dropna().unique()[0].strftime("%Y%m%d")
+    fecha_reporte = df_metabase['fecha_proceso'].dropna().unique()[0].strftime("%Y%m%d")
 
     # Resumen Metabase
     st.subheader("Datos consolidados Metabase")
@@ -327,7 +334,65 @@ if archivo_metabase:
                 with st.expander('Detalle de operaciones con diferencias (Desglose por hora)'):
                     st.dataframe(df_diferencias_detalle[columnas_a_mostrar], width='stretch')
 
-                # Marcamos el DF del metabase original con el estado de las diferencias
+                    # --- NUEVA LÓGICA: CORRECCIÓN INTERACTIVA DE METABASE ---
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    if st.toggle("Diferencia por N op (Corrector)"):
+                        st.write("1. Marca las casillas de los registros de Metabase que deseas modificar.\n2. Escribe el nuevo número de operación y pulsa Aplicar.")
+                        
+                        df_to_edit = df_diferencias_detalle[columnas_a_mostrar].copy()
+                        df_to_edit.insert(0, 'Seleccionar', False)
+                        
+                        edited_df = st.data_editor(
+                            df_to_edit, 
+                            width='stretch', 
+                            hide_index=True,
+                            column_config={"Seleccionar": st.column_config.CheckboxColumn(required=True)}
+                        )
+                        
+                        col1, col2 = st.columns([2, 1])
+                        with col1:
+                            nuevo_n_op = st.text_input("Nuevo Número de Operación:", placeholder="Ej: 57299")
+                        with col2:
+                            st.markdown("<br>", unsafe_allow_html=True)
+                            if st.button("Aplicar Cambios a Metabase", use_container_width=True):
+                                filas_seleccionadas = edited_df[edited_df['Seleccionar']]
+                                
+                                if not filas_seleccionadas.empty and nuevo_n_op:
+                                    cambios_realizados = 0
+                                    
+                                    # Formatear el nuevo número evitando decimales no deseados
+                                    op_limpio = str(int(round(float(nuevo_n_op)))) if nuevo_n_op.replace('.', '', 1).isdigit() else str(nuevo_n_op).strip()
+
+                                    for _, row in filas_seleccionadas.iterrows():
+                                        # Si la fila no existe en Metabase, no podemos actualizarla
+                                        if pd.isna(row['Banco metabase']):
+                                            continue 
+                                        
+                                        op_actual = str(row['Numero operacion metabase']).strip()
+                                        
+                                        # Encontrar la fila exacta en el df almacenado en session_state
+                                        mask_meta = (
+                                            (st.session_state.df_metabase['name'] == row['Banco metabase']) &
+                                            (st.session_state.df_metabase['ope_psp'].astype(str) == op_actual) &
+                                            (st.session_state.df_metabase['hora'] == row['Hora metabase'])
+                                        )
+                                        
+                                        if mask_meta.any():
+                                            st.session_state.df_metabase.loc[mask_meta, 'ope_psp'] = op_limpio
+                                            cambios_realizados += 1
+                                            
+                                    if cambios_realizados > 0:
+                                        st.success(f"Se actualizaron {cambios_realizados} registro(s). Recalculando...")
+                                        st.rerun() # Reinicia la app para procesar con los datos modificados
+                                    else:
+                                        st.warning("No se encontraron registros válidos en Metabase para aplicar el cambio.")
+                                        
+                                elif not nuevo_n_op:
+                                    st.warning("Por favor, ingresa el nuevo número de operación.")
+                                else:
+                                    st.warning("Por favor, selecciona al menos una fila marcando la casilla.")
+
+                # Marcamos el DF del metabase original con el estado de las diferencias (sin modificar la session cruda)
                 operaciones_con_dif = df_diferencias_detalle['Operación - Número'].dropna().unique()
                 mask_diferencias = df_metabase['ope_psp'].isin(operaciones_con_dif)
                 df_metabase.loc[mask_diferencias, 'Estado'] = f'Conciliacion_{fecha_reporte} - Diferencias'
