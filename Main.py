@@ -113,7 +113,7 @@ if payouts_metabase is not None:
         )
         df_bbva_causantes['name'] = '(BBVA) - BBVA Continental'
 
-        # ======== LÓGICA RESTANTES (+2) EN BBVA SOLO SI HAY DIFERENCIA ========
+        # ======== LÓGICA RESTANTES (+2) EN BBVA ESTRICTA ========
         # 1. Calcular montos esperados del metabase para BBVA
         metabase_bbva = payouts_metabase_df[payouts_metabase_df['name'] == '(BBVA) - BBVA Continental'].copy()
         metabase_bbva['ope_psp'] = metabase_bbva['ope_psp'].astype(str).str.strip()
@@ -122,35 +122,52 @@ if payouts_metabase is not None:
         # 2. Calcular montos encontrados actualmente en el estado de cuenta
         current_amounts = df_bbva_causantes.groupby('Operación - Número')['Monto'].sum()
 
-        # 3. Detectar ops con diferencias (monto_metabase + monto_banco != 0)
-        ops_con_diferencia = []
+        restantes_encontrados = []
+        ops_ajustadas = []
+
+        # 3. Detectar ops con diferencias e intentar cuadrar de forma precisa
         for op in df_bbva_causantes['Operación - Número'].unique():
             if op in expected_amounts.index:
-                if round(expected_amounts[op] + current_amounts.get(op, 0), 2) != 0:
-                    ops_con_diferencia.append(op)
+                # Calcula la diferencia actual (Monto Kashio + Monto Banco)
+                diferencia = round(expected_amounts[op] + current_amounts.get(op, 0), 2)
+                
+                if diferencia != 0:
+                    # El monto requerido del banco para equilibrar a cero es la diferencia invertida
+                    monto_buscado = round(-diferencia, 2)
                     
-        # 4. Filtrar causantes que tienen diferencia para buscar su +2
-        df_diferencias = df_bbva_causantes[df_bbva_causantes['Operación - Número'].isin(ops_con_diferencia)].copy()
+                    # REGLA: Solo buscamos si el monto requerido es un valor POSITIVO
+                    if monto_buscado > 0:
+                        try:
+                            op_int = int(op)
+                            op_target_int = op_int + 2
+                            
+                            # Filtro muy estricto: Coincidencia numérica de Op + 2 Y coincidencia exacta de Monto
+                            mask_exacta = (
+                                (pd.to_numeric(bancos_bbva['Operación - Número'], errors='coerce') == op_target_int) &
+                                (bancos_bbva['Monto'].round(2) == monto_buscado)
+                            )
+                            
+                            match_df = bancos_bbva[mask_exacta].copy()
+                            
+                            # Si encuentra algo, lo acepta como restante válido
+                            if not match_df.empty:
+                                match_df['Operación - Número'] = str(op_int)  # Se unifica el ID
+                                match_df['name'] = '(BBVA) - BBVA Continental'
+                                restantes_encontrados.append(match_df)
+                                ops_ajustadas.append(str(op_int))
+                        except ValueError:
+                            pass # Manejo por si el número de op tiene letras
         
-        df_diferencias['Op_Causante_Int'] = pd.to_numeric(df_diferencias['Operación - Número'], errors='coerce')
-        mapa_restantes = df_diferencias.dropna(subset=['Op_Causante_Int']).set_index(df_diferencias['Op_Causante_Int'] + 2)['Operación - Número'].to_dict()
-        
-        bancos_bbva['Op_Temp_Int'] = pd.to_numeric(bancos_bbva['Operación - Número'], errors='coerce')
-        df_restantes = bancos_bbva[bancos_bbva['Op_Temp_Int'].isin(mapa_restantes.keys())].copy()
-        
-        # 5. Asignamos a los restantes el mismo número de operación de su causante para que se agrupen juntos
-        df_restantes['Operación - Número'] = df_restantes['Op_Temp_Int'].map(mapa_restantes)
-        df_restantes['name'] = '(BBVA) - BBVA Continental'
-        
-        # --- NUEVO: Notificación al usuario ---
-        if not df_restantes.empty:
-            ops_ajustadas = df_restantes['Operación - Número'].unique()
-            st.info(f"💡 **Ajuste automático BBVA:** Se encontraron y sumaron {len(df_restantes)} registro(s) restante(s) (+2) para resolver diferencias. Op(s) base afectadas: {', '.join(ops_ajustadas)}")
-        # --------------------------------------
-
-        # Unimos operaciones BBVA causantes con sus respectivos restantes encontrados
-        df_bbva = pd.concat([df_bbva_causantes, df_restantes], ignore_index=True)
-        df_bbva = df_bbva.drop(columns=['Op_Causante_Int'], errors='ignore')
+        # 4. Integrar los registros válidos o dejar las cosas como están
+        if restantes_encontrados:
+            df_restantes_validos = pd.concat(restantes_encontrados, ignore_index=True)
+            df_bbva = pd.concat([df_bbva_causantes, df_restantes_validos], ignore_index=True)
+            
+            # --- Notificación al usuario con validación estricta ---
+            st.info(f"💡 **Ajuste automático BBVA:** Se detectaron {len(df_restantes_validos)} registro(s) restante(s) (+2) con montos positivos que cuadran **exactamente** la diferencia. Operación(es) consolidada(s): {', '.join(set(ops_ajustadas))}")
+        else:
+            df_bbva = df_bbva_causantes.copy()
+        # ==========================================================
 
         # ======== SECCIÓN OTROS BANCOS (BXI) ========
         df_otros = bancos_bbva[bancos_bbva['Referencia2'].astype(str).str.contains('BXI', case=False, na=False)].copy()
