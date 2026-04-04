@@ -24,6 +24,15 @@ def limpiar_numero_operacion(series: pd.Series) -> pd.Series:
         lambda x: str(int(round(x))) if pd.notna(x) else None
     )
 
+def limpiar_memoria_metabase():
+    """
+    Limpia el estado de sesión asociado al archivo Metabase cuando se sube uno nuevo o se elimina.
+    """
+    if 'df_metabase' in st.session_state:
+        del st.session_state['df_metabase']
+    if 'uploaded_file_name' in st.session_state:
+        del st.session_state['uploaded_file_name']
+
 # =========================================
 # PROCESAMIENTO METABASE
 # =========================================
@@ -193,12 +202,17 @@ st.set_page_config(page_title="Conciliación Payouts", layout="centered")
 st.title('Conciliación PAYOUTS día anterior')
 st.write('Herramienta para la conciliación de los pagos del día anterior')
 
-archivo_metabase = st.file_uploader('Sube el archivo de payouts del metabase', type=['xlsx'])
+# Agregamos el on_change para limpiar la memoria al subir/quitar archivo
+archivo_metabase = st.file_uploader(
+    'Sube el archivo de payouts del metabase', 
+    type=['xlsx'],
+    on_change=limpiar_memoria_metabase
+)
 
 if archivo_metabase:
     # --- IMPLEMENTACIÓN DE SESSION STATE ---
-    # Esto asegura que al modificar Metabase en la UI, no se vuelva a cargar el original
-    if 'uploaded_file_name' not in st.session_state or st.session_state.uploaded_file_name != archivo_metabase.name:
+    # Si no existe en memoria, significa que es un archivo nuevo o recién subido
+    if 'df_metabase' not in st.session_state:
         with st.spinner("Procesando archivo Metabase..."):
             df_metabase_raw = pd.read_excel(archivo_metabase)
             st.session_state.df_metabase = procesar_metabase(df_metabase_raw)
