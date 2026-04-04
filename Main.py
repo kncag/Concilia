@@ -1,6 +1,7 @@
 import pandas as pd
 import streamlit as st
 import io
+from datetime import datetime, timedelta
 
 # =========================================
 # CONSTANTES
@@ -201,6 +202,23 @@ def generar_excel_descarga(df_metabase: pd.DataFrame, df_bancos: pd.DataFrame, f
 st.set_page_config(page_title="Conciliación Payouts", layout="centered")
 st.title('Conciliación PAYOUTS día anterior')
 st.write('Herramienta para la conciliación de los pagos del día anterior')
+
+# --- NUEVO: LINK DINÁMICO A METABASE ---
+col_fecha1, col_fecha2 = st.columns(2)
+with col_fecha1:
+    fecha_desde = st.date_input("Desde", datetime.today() - timedelta(days=1))
+with col_fecha2:
+    fecha_hasta = st.date_input("Hasta", datetime.today() - timedelta(days=1))
+
+str_desde = fecha_desde.strftime("%Y-%m-%d")
+str_hasta = fecha_hasta.strftime("%Y-%m-%d")
+
+# URL con f-string para insertar las fechas dinámicamente
+url_metabase = f"https://kashio.metabaseapp.com/dashboard/332-kashio-payouts-dashboard-1-1-tesoreria-redshift?banco=TODOS&categoria=TODOS&comercio=Meridianbet+-+INSTANT+PAYOUTS&comercio_invoice_public_id=TODOS&comercio_payout=Apuesta+Total&comercio_payout_public_id=TODOS&customer_public_id=TODOS&debtor_documento=TODOS&debtor_id_cliente=TODOS&debtor_name=TODOS&descripcion=TODOS&desde={str_desde}T00%3A01%3A00&empresa=AQUI+JUEGO+%28Cta+Payout%29&empresa=ASTROPAY&empresa=Apuesta+Total&empresa=BETSOFFICE%2C+S.A.C&empresa=BETYOU+-+PYO&empresa=BONANZA&empresa=CASINO+OPTIMUS&empresa=CASINO+VIP&empresa=CHAPA+CAMBIO&empresa=Confiar+del+Per%C3%BA&empresa=DISTRABET&empresa=GANGABET&empresa=GRUPO+COMPETIDORES&empresa=INSWITCH+-+PAYOUTS&empresa=INSWITCH+CRYPTO&empresa=KASHIN&empresa=LA+FIJA&empresa=MeridianBet+-+KASHIO+PAYOUT&empresa=NG+Entertainment+Peru+II&empresa=PAGSMILE&empresa=PENTAGOL&empresa=SOLBET&empresa=SOMOS+CASINO&empresa=TAXIA+LIFE&empresa=Tkambio&empresa=WIN&empresa=Zest+Bond+Liquid+X&empresa_payout=Apuesta+Total&empresa_payout=BETSOFFICE%2C+S.A.C&empresa_payout=BONANZA&empresa_payout=DISTRABET&empresa_payout=GANGABET&empresa_payout=INSWITCH+-+PAYOUTS&empresa_payout=INSWITCH+CRYPTO&empresa_payout=PAGSMILE&empresa_payout=PENTAGOL&empresa_payout=SOLBET&empresa_payout=SOMOS+CASINO&empresa_payout=TAXIA+LIFE&empresa_payout=WIN&empresa_payout=GANA+EXPRESS&empresa_payout=AGROBANCO+-+Payouts+Regular&empresa_payout=Pr%C3%A9stamos+365+-+Payouts+Regular&empresa_payout=Olimpo+BET+Calimaco&empresa_payout=+KEISAI+SAC+-+INSTANT+PAYOUTS&empresa_payout=AQUI+JUEGO+%28Cta+Payout%29&empresa_payout=ASTROPAY&empresa_payout=BET+4&empresa_payout=BETYOU+-+PYO&empresa_payout=CASINO+OPTIMUS&empresa_payout=CASINO+VIP&empresa_payout=CHAPA+CAMBIO&empresa_payout=COMERCIO+PRUEBA+PROD&empresa_payout=Confiar+del+Per%C3%BA&empresa_payout=Cr%C3%A9dito+M%C3%B3vil+-+Instant+Payouts&empresa_payout=Cr%C3%A9dito+Movil+SAC&empresa_payout=DOCTOR+SOL&empresa_payout=DOCTOR+SOL+X&empresa_payout=FIN+CUBE&empresa_payout=GANA+EXPRESS+YAPE&empresa_payout=GRUPO+COMPETIDORES&empresa_payout=KASHIN&empresa_payout=KRECE+-+Instant+Payouts&empresa_payout=LA+FIJA&empresa_payout=LOTOBOLA+ONLINE&empresa_payout=LOTOBOLA+SKILROCK&empresa_payout=MARCO+MARKETING+CONSULTANTS+PERU+S.A.C.&empresa_payout=Meridianbet+-+INSTANT+PAYOUTS&empresa_payout=MeridianBet+-+KASHIO+PAYOUT&empresa_payout=NG+Entertainment+Peru+II&empresa_payout=PAGSMILE+INSTANT+PAYOUT&empresa_payout=PRESTAMO+365+-+Instant+Payouts&empresa_payout=Tkambio&empresa_payout=VANA+INSTANT+PAYOUTS+YAPE+-+PER%C3%9A&empresa_payout=Virtual+Padlock+Payout+2025&empresa_payout=Zest+Bond+Liquid+X&hasta={str_hasta}T23%3A59%3A00&inv_estado=TODOS&inv_public_id=TODOS&invoice_public_id=TODOS&nombre_banco=%28BCP%29+-+Banco+de+Cr%C3%A9dito+del+Per%C3%BA&nombre_banco=%28Interbank%29+-+Banco+International+del+Per%C3%BA&nombre_banco=%28BBVA%29+-+BBVA+Continental+&nombre_banco=Otros+bancos&nombre_banco=%28BBVA%29+-+BBVA+Continental&nombre_banco=BanBif&nombre_banco=Banco+Azteca&nombre_banco=Banco+Continental&nombre_banco=Banco+Falabella&nombre_banco=Banco+GNB&nombre_banco=Banco+Pichincha&nombre_banco=Banco+Ripley&nombre_banco=Banco+de+Cr%C3%A9dito+e+Inversiones&nombre_banco=Banco+de+la+Naci%C3%B3n&nombre_banco=Banco+del+Pac%C3%ADfico&nombre_banco=Caja+Cusco&nombre_banco=Citibank+Per%C3%BA&nombre_banco=Cmac+Arequipa&nombre_banco=Cmac+Cusco&nombre_banco=Cmac+Del+Santa&nombre_banco=Cmac+Huancayo&nombre_banco=Cmac+Ica&nombre_banco=Cmac+Maynas&nombre_banco=Cmac+Paita&nombre_banco=Cmac+Piura&nombre_banco=Cmac+Sullana&nombre_banco=Cmac+Tacna&nombre_banco=Cmac+Trujillo&nombre_banco=Cmcp+Lima&nombre_banco=Compartamos+Financiera&nombre_banco=Crac+Cencosud+Scotia&nombre_banco=Crac+Del+Centro&nombre_banco=Crac+Incasur&nombre_banco=Crac+Los+Andes&nombre_banco=Crac+Prymera&nombre_banco=Crac+Raiz&nombre_banco=Crac+Sipan&nombre_banco=Crediscotia&nombre_banco=Financ.+Credinka&nombre_banco=Financ.+Proempresa&nombre_banco=Financiera+Confianza&nombre_banco=Financiera+Efectiva&nombre_banco=Financiera+Oh&nombre_banco=Financiera+Qapaq&nombre_banco=Mi+Banco&nombre_banco=Santander+Peru&nombre_banco=Banco+de+Comercio&nombre_banco=Banco+del+Desarrollo&nombre_banco=Icbc+Peru+Bank&nombre_banco=Red+Digital&nombre_banco=Compartamos&orden_estado=Pagado&parte_nroref=TODOS&payout_process=TODOS&po_public_id=TODOS&proceso_estado=TODOS&public__id_cuenta=&referencia=TODOS&seleccione_fecha=2025-01-31&tab=926-payout-por-invoice&tesoreria_invoice_public_id=TODOS&tesoreria_payout_public_id=TODOS&tipo_operacion=TODOS"
+
+st.markdown(f"[METABASE]({url_metabase})")
+st.markdown("---")
+# ----------------------------------------
 
 # Agregamos el on_change para limpiar la memoria al subir/quitar archivo
 archivo_metabase = st.file_uploader(
