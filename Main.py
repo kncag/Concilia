@@ -369,7 +369,9 @@ if archivo_metabase:
                     # --- NUEVA LÓGICA: CORRECCIÓN INTERACTIVA DE METABASE ---
                     st.markdown("<br>", unsafe_allow_html=True)
                     if st.toggle("Diferencia por N op (Corrector)"):
-                        st.write("1. Marca las casillas de los registros de Metabase que deseas modificar.\n2. Escribe el nuevo número de operación y pulsa Aplicar.")
+                        st.write("1. Marca las casillas de los registros de Metabase que deseas modificar o eliminar.")
+                        st.write("2. Para actualizar N° Op: Escribe el nuevo número y pulsa Aplicar.")
+                        st.write("3. Para borrar: Simplemente pulsa Eliminar Seleccionados.")
                         
                         df_to_edit = df_diferencias_detalle[columnas_a_mostrar].copy()
                         df_to_edit.insert(0, 'Seleccionar', False)
@@ -381,48 +383,84 @@ if archivo_metabase:
                             column_config={"Seleccionar": st.column_config.CheckboxColumn(required=True)}
                         )
                         
-                        col1, col2 = st.columns([2, 1])
+                        # --- Botones de acción reorganizados ---
+                        col1, col2, col3 = st.columns([2, 1, 1])
+                        
                         with col1:
                             nuevo_n_op = st.text_input("Nuevo Número de Operación:", placeholder="Ej: 57299")
+                            
                         with col2:
                             st.markdown("<br>", unsafe_allow_html=True)
-                            if st.button("Aplicar Cambios a Metabase", use_container_width=True):
-                                filas_seleccionadas = edited_df[edited_df['Seleccionar']]
-                                
-                                if not filas_seleccionadas.empty and nuevo_n_op:
-                                    cambios_realizados = 0
-                                    
-                                    # Formatear el nuevo número evitando decimales no deseados
-                                    op_limpio = str(int(round(float(nuevo_n_op)))) if nuevo_n_op.replace('.', '', 1).isdigit() else str(nuevo_n_op).strip()
+                            btn_aplicar = st.button("Aplicar Cambios", use_container_width=True)
+                            
+                        with col3:
+                            st.markdown("<br>", unsafe_allow_html=True)
+                            btn_eliminar = st.button("Eliminar Seleccionados", type="primary", use_container_width=True)
 
-                                    for _, row in filas_seleccionadas.iterrows():
-                                        # Si la fila no existe en Metabase, no podemos actualizarla
-                                        if pd.isna(row['Banco metabase']):
-                                            continue 
+                        # Ejecutar acciones
+                        if btn_aplicar:
+                            filas_seleccionadas = edited_df[edited_df['Seleccionar']]
+                            
+                            if not filas_seleccionadas.empty and nuevo_n_op:
+                                cambios_realizados = 0
+                                op_limpio = str(int(round(float(nuevo_n_op)))) if nuevo_n_op.replace('.', '', 1).isdigit() else str(nuevo_n_op).strip()
+
+                                for _, row in filas_seleccionadas.iterrows():
+                                    if pd.isna(row['Banco metabase']):
+                                        continue 
+                                    
+                                    op_actual = str(row['Numero operacion metabase']).strip()
+                                    
+                                    mask_meta = (
+                                        (st.session_state.df_metabase['name'] == row['Banco metabase']) &
+                                        (st.session_state.df_metabase['ope_psp'].astype(str) == op_actual) &
+                                        (st.session_state.df_metabase['hora'] == row['Hora metabase'])
+                                    )
+                                    
+                                    if mask_meta.any():
+                                        st.session_state.df_metabase.loc[mask_meta, 'ope_psp'] = op_limpio
+                                        cambios_realizados += 1
                                         
-                                        op_actual = str(row['Numero operacion metabase']).strip()
-                                        
-                                        # Encontrar la fila exacta en el df almacenado en session_state
-                                        mask_meta = (
-                                            (st.session_state.df_metabase['name'] == row['Banco metabase']) &
-                                            (st.session_state.df_metabase['ope_psp'].astype(str) == op_actual) &
-                                            (st.session_state.df_metabase['hora'] == row['Hora metabase'])
-                                        )
-                                        
-                                        if mask_meta.any():
-                                            st.session_state.df_metabase.loc[mask_meta, 'ope_psp'] = op_limpio
-                                            cambios_realizados += 1
-                                            
-                                    if cambios_realizados > 0:
-                                        st.success(f"Se actualizaron {cambios_realizados} registro(s). Recalculando...")
-                                        st.rerun() # Reinicia la app para procesar con los datos modificados
-                                    else:
-                                        st.warning("No se encontraron registros válidos en Metabase para aplicar el cambio.")
-                                        
-                                elif not nuevo_n_op:
-                                    st.warning("Por favor, ingresa el nuevo número de operación.")
+                                if cambios_realizados > 0:
+                                    st.success(f"Se actualizaron {cambios_realizados} registro(s). Recalculando...")
+                                    st.rerun()
                                 else:
-                                    st.warning("Por favor, selecciona al menos una fila marcando la casilla.")
+                                    st.warning("No se encontraron registros válidos en Metabase para aplicar el cambio.")
+                                    
+                            elif not nuevo_n_op:
+                                st.warning("Por favor, ingresa el nuevo número de operación.")
+                            else:
+                                st.warning("Por favor, selecciona al menos una fila marcando la casilla.")
+                                
+                        elif btn_eliminar:
+                            filas_seleccionadas = edited_df[edited_df['Seleccionar']]
+                            
+                            if not filas_seleccionadas.empty:
+                                registros_eliminados = 0
+                                for _, row in filas_seleccionadas.iterrows():
+                                    if pd.isna(row['Banco metabase']):
+                                        continue 
+                                    
+                                    op_actual = str(row['Numero operacion metabase']).strip()
+                                    
+                                    mask_meta = (
+                                        (st.session_state.df_metabase['name'] == row['Banco metabase']) &
+                                        (st.session_state.df_metabase['ope_psp'].astype(str) == op_actual) &
+                                        (st.session_state.df_metabase['hora'] == row['Hora metabase'])
+                                    )
+                                    
+                                    if mask_meta.any():
+                                        # Eliminar filas usando un filtro inverso de la máscara
+                                        st.session_state.df_metabase = st.session_state.df_metabase[~mask_meta]
+                                        registros_eliminados += 1
+                                        
+                                if registros_eliminados > 0:
+                                    st.success(f"Se eliminaron {registros_eliminados} registro(s). Recalculando...")
+                                    st.rerun()
+                                else:
+                                    st.warning("No se encontraron registros válidos en Metabase para eliminar.")
+                            else:
+                                st.warning("Por favor, selecciona al menos una fila marcando la casilla para eliminar.")
 
                 # Marcamos el DF del metabase original con el estado de las diferencias (sin modificar la session cruda)
                 operaciones_con_dif = df_diferencias_detalle['Operación - Número'].dropna().unique()
