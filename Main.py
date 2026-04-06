@@ -34,6 +34,17 @@ def limpiar_memoria_metabase():
     if 'uploaded_file_name' in st.session_state:
         del st.session_state['uploaded_file_name']
 
+def limpiar_memoria_bancos():
+    """
+    Limpia el estado de sesión de operaciones eliminadas cuando se cambian los estados de cuenta.
+    """
+    if 'bancos_eliminados' in st.session_state:
+        st.session_state.bancos_eliminados = []
+
+# Inicializamos la memoria de bancos eliminados si no existe
+if 'bancos_eliminados' not in st.session_state:
+    st.session_state.bancos_eliminados = []
+
 # =========================================
 # PROCESAMIENTO METABASE
 # =========================================
@@ -253,7 +264,12 @@ if archivo_metabase:
         'bbva': lambda arc: procesar_bbva_otros(arc, df_metabase) # Pasamos df_metabase al BBVA
     }
 
-    archivos_bancos = st.file_uploader('Subir estados de cuenta bancarios', type=['xlsx', 'xls'], accept_multiple_files=True)
+    archivos_bancos = st.file_uploader(
+        'Subir estados de cuenta bancarios', 
+        type=['xlsx', 'xls'], 
+        accept_multiple_files=True,
+        on_change=limpiar_memoria_bancos # Limpia las eliminaciones si subes nuevos archivos de bancos
+    )
     
     if archivos_bancos:
         df_bancos_list = []
@@ -274,6 +290,15 @@ if archivo_metabase:
 
         if df_bancos_list:
             df_bancos_final = pd.concat(df_bancos_list, ignore_index=True)
+            
+            # --- NUEVA LÓGICA: APLICAR ELIMINACIONES DEL BANCO ---
+            if st.session_state.bancos_eliminados:
+                for eliminado in st.session_state.bancos_eliminados:
+                    mask_eliminar = (
+                        (df_bancos_final['name'] == eliminado['banco']) & 
+                        (df_bancos_final['Operación - Número'].astype(str) == eliminado['op'])
+                    )
+                    df_bancos_final = df_bancos_final[~mask_eliminar]
             
             st.subheader("Datos consolidados de los Bancos")
             st.dataframe(df_bancos_final, width='stretch')
@@ -366,12 +391,12 @@ if archivo_metabase:
                 with st.expander('Detalle de operaciones con diferencias (Desglose por hora)'):
                     st.dataframe(df_diferencias_detalle[columnas_a_mostrar], width='stretch')
 
-                    # --- NUEVA LÓGICA: CORRECCIÓN INTERACTIVA DE METABASE ---
+                    # --- NUEVA LÓGICA: CORRECCIÓN INTERACTIVA ---
                     st.markdown("<br>", unsafe_allow_html=True)
                     if st.toggle("Diferencia por N op (Corrector)"):
-                        st.write("1. Marca las casillas de los registros de Metabase que deseas modificar o eliminar.")
-                        st.write("2. Para actualizar N° Op: Escribe el nuevo número y pulsa Aplicar.")
-                        st.write("3. Para borrar: Simplemente pulsa Eliminar Seleccionados.")
+                        st.write("1. Marca las casillas de los registros que deseas modificar o eliminar.")
+                        st.write("2. Para actualizar N° Op en Metabase: Escribe el nuevo número y pulsa Aplicar Cambios.")
+                        st.write("3. Para borrar del Banco: Simplemente pulsa Eliminar del Banco.")
                         
                         df_to_edit = df_diferencias_detalle[columnas_a_mostrar].copy()
                         df_to_edit.insert(0, 'Seleccionar', False)
@@ -387,15 +412,15 @@ if archivo_metabase:
                         col1, col2, col3 = st.columns([2, 1, 1])
                         
                         with col1:
-                            nuevo_n_op = st.text_input("Nuevo Número de Operación:", placeholder="Ej: 57299")
+                            nuevo_n_op = st.text_input("Nuevo Número de Operación (Para Metabase):", placeholder="Ej: 57299")
                             
                         with col2:
                             st.markdown("<br>", unsafe_allow_html=True)
-                            btn_aplicar = st.button("Aplicar Cambios", use_container_width=True)
+                            btn_aplicar = st.button("Aplicar a Metabase", use_container_width=True)
                             
                         with col3:
                             st.markdown("<br>", unsafe_allow_html=True)
-                            btn_eliminar = st.button("Eliminar Seleccionados", type="primary", use_container_width=True)
+                            btn_eliminar = st.button("Eliminar del Banco", type="primary", use_container_width=True)
 
                         # Ejecutar acciones
                         if btn_aplicar:
@@ -422,7 +447,7 @@ if archivo_metabase:
                                         cambios_realizados += 1
                                         
                                 if cambios_realizados > 0:
-                                    st.success(f"Se actualizaron {cambios_realizados} registro(s). Recalculando...")
+                                    st.success(f"Se actualizaron {cambios_realizados} registro(s) en Metabase. Recalculando...")
                                     st.rerun()
                                 else:
                                     st.warning("No se encontraron registros válidos en Metabase para aplicar el cambio.")
@@ -438,27 +463,24 @@ if archivo_metabase:
                             if not filas_seleccionadas.empty:
                                 registros_eliminados = 0
                                 for _, row in filas_seleccionadas.iterrows():
-                                    if pd.isna(row['Banco metabase']):
+                                    if pd.isna(row['Banco estados de cuenta']):
                                         continue 
                                     
-                                    op_actual = str(row['Numero operacion metabase']).strip()
+                                    banco_actual = str(row['Banco estados de cuenta']).strip()
+                                    op_actual = str(row['Numero operacion banco']).strip()
                                     
-                                    mask_meta = (
-                                        (st.session_state.df_metabase['name'] == row['Banco metabase']) &
-                                        (st.session_state.df_metabase['ope_psp'].astype(str) == op_actual) &
-                                        (st.session_state.df_metabase['hora'] == row['Hora metabase'])
-                                    )
-                                    
-                                    if mask_meta.any():
-                                        # Eliminar filas usando un filtro inverso de la máscara
-                                        st.session_state.df_metabase = st.session_state.df_metabase[~mask_meta]
-                                        registros_eliminados += 1
+                                    # Añadimos la operación a la lista de excluidos del banco
+                                    st.session_state.bancos_eliminados.append({
+                                        'banco': banco_actual,
+                                        'op': op_actual
+                                    })
+                                    registros_eliminados += 1
                                         
                                 if registros_eliminados > 0:
-                                    st.success(f"Se eliminaron {registros_eliminados} registro(s). Recalculando...")
+                                    st.success(f"Se descartaron {registros_eliminados} registro(s) del estado de cuenta. Recalculando...")
                                     st.rerun()
                                 else:
-                                    st.warning("No se encontraron registros válidos en Metabase para eliminar.")
+                                    st.warning("Las filas seleccionadas no existen en los estados de cuenta.")
                             else:
                                 st.warning("Por favor, selecciona al menos una fila marcando la casilla para eliminar.")
 
