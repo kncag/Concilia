@@ -1,7 +1,11 @@
 import pandas as pd
 import streamlit as st
 import io
+import warnings
 from datetime import datetime, timedelta
+
+# Ocultar advertencias inofensivas de los estilos de Excel del banco
+warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
 
 # =========================================
 # CONSTANTES
@@ -290,6 +294,10 @@ if archivo_metabase:
 
         if df_bancos_list:
             df_bancos_final = pd.concat(df_bancos_list, ignore_index=True)
+
+            # --- HOMOGENEIZACIÓN DE FECHA PARA EVITAR ERROR ARROW ---
+            if 'Fecha' in df_bancos_final.columns:
+                df_bancos_final['Fecha'] = pd.to_datetime(df_bancos_final['Fecha'], errors='coerce').dt.strftime('%Y-%m-%d')
             
             # --- NUEVA LÓGICA: APLICAR ELIMINACIONES DEL BANCO ---
             if st.session_state.bancos_eliminados:
